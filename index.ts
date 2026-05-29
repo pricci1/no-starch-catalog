@@ -1,12 +1,14 @@
 import { scrape } from "./src/scrape";
 import { extractPdfs } from "./src/extract";
 import { buildCatalogDb, searchCatalog } from "./src/db";
+import { buildHistoryDb } from "./src/history";
 
 function usage(): never {
   console.error(`Usage:
   bun run index.ts scrape [--limit N] [--no-assets]
   bun run index.ts extract-pdfs
   bun run index.ts build-db
+  bun run index.ts history-db
   bun run index.ts search QUERY
 `);
   process.exit(1);
@@ -29,6 +31,9 @@ if (command === "scrape") {
   await extractPdfs();
 } else if (command === "build-db") {
   const dbPath = await buildCatalogDb();
+  console.log(dbPath);
+} else if (command === "history-db") {
+  const dbPath = await buildHistoryDb();
   console.log(dbPath);
 } else if (command === "search") {
   const query = process.argv.slice(3).join(" ");
