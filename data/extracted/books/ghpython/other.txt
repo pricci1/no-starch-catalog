@@ -1,0 +1,148 @@
+                                                                         Gray Hat Python
+                                                         Python Programming for Hackers and Reverse Engineers
+
+                                                                               by Justin Seitz
+
+                                                                         Errata updated to print 14
+                                                                                                                                                             Print
+Page                                    Error                                                                          Correction
+                                                                                                                                                           corrected
+
+31                                                                                                                                                         Print 8
+       def open_process(self,pid):                                                      def open_process(self,pid):
+
+        h_process = kernel32.OpenProcess(PROCESS_ALL_ACCESS,pid,False)                    h_process = kernel32.OpenProcess(PROCESS_ALL_ACCESS,False,pid)
+        return h_process                                                                  return h_process
+
+       def attach(self,pid):                                                            def attach(self,pid):
+
+        self.h_process = self.open_process(pid)                                           self.h_process = self.open_process(pid)
+
+        # We attempt to attach to the process                                             # We attempt to attach to the process
+        # if this fails we exit the call                                                  # if this fails we exit the call
+        if kernel32.DebugActiveProcess(pid):                                              if kernel32.DebugActiveProcess(pid):
+          self.debugger_active = True                                                       self.debugger_active = True
+          self.pid = int(pid)                                                               self.pid = int(pid)
+          self.run()                                                                      else:
+        else:                                                                               print "[*] Unable to attach to the process."
+          print "[*] Unable to attach to the process."
+                                                                                                                                                           Print
+Page                                     Error                                                                 Correction
+                                                                                                                                                         corrected
+
+37                                                                                                                                                       Print 8
+       def enumerate_threads(self):                                             def enumerate_threads(self):
+       --snip--                                                                 --snip--
+         if snapshot is not None:                                                 if snapshot is not None:
+         --snip--                                                                 --snip--
+           while success:                                                           while success:
+             if thread_entry.th32OwnerProcessID == self.pid:                          if thread_entry.th32OwnerProcessID == self.pid:
+               thread_list.append(thread_entry.th32ThreadID)                            thread_list.append(thread_entry.th32ThreadID)
+               success = kernel32.Thread32Next(snapshot, byref(thread_entry))           success = kernel32.Thread32Next(snapshot, byref(thread_entry))
+             kernel32.CloseHandle(snapshot)                                         kernel32.CloseHandle(snapshot)
+             return thread_list                                                     return thread_list
+         else:                                                                    else:
+           return False                                                             return False
+
+       def get_thread_context (self, thread_id):                                def get_thread_context (self, thread_id=None,h_thread=None):
+
+         context = CONTEXT()                                                      context = CONTEXT()
+         context.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS            context.ContextFlags = CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS
+                                                                                  if not h_thread:
+                                                                                    self.open_thread(thread_id)
+                                                                                                                                                                   Print
+Page                                       Error                                                                     Correction
+                                                                                                                                                                 corrected
+
+42                                                                                                                                                               Print 8
+       def get_debug_event(self):                                                   def get_debug_event(self):
+
+        debug_event = DEBUG_EVENT()                                                  debug_event = DEBUG_EVENT()
+        continue_status= DBG_CONTINUE                                                continue_status= DBG_CONTINUE
+
+        if kernel32.WaitForDebugEvent(byref(debug_event),INFINITE):                  if kernel32.WaitForDebugEvent(byref(debug_event),INFINITE):
+          # Let's obtain the thread and context information                            # Let's obtain the thread and context information
+          self.h_thread = self.open_thread(debug_event.dwThreadId)                     self.h_thread = self.open_thread(debug_event.dwThreadId)
+
+             self.context = self.get_thread_context(self.h_thread)                        self.context = self.get_thread_context(h_thread=self.h_thread)
+
+              print "Event Code: %d Thread ID: %d" %                                       print "Event Code: %d Thread ID: %d" %
+              (debug_event.dwDebugEventCode, debug_event.dwThreadId)                       (debug_event.dwDebugEventCode, debug_event.dwThreadId)
+
+             # If the event code is an exception, we want to                              # If the event code is an exception, we want to
+             # examine it further.                                                        # examine it further.
+             if debug_event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT:                    if debug_event.dwDebugEventCode == EXCEPTION_DEBUG_EVENT:
+
+              # Obtain the exception code                                                  # Obtain the exception code
+                exception = debug_event.u.Exception.ExceptionRecord.ExceptionCode            exception = debug_event.u.Exception.ExceptionRecord.ExceptionCode
+                self.exception_address = debug_event.u.Exception.ExceptionRecord             self.exception_address = debug_event.u.Exception.ExceptionRecord
+                  .ExceptionAddress                                                            .ExceptionAddress
+
+             if exception == EXCEPTION_ACCESS_VIOLATION:                                    if exception == EXCEPTION_ACCESS_VIOLATION:
+               print "Access Violation Detected."                                             print "Access Violation Detected."
+
+               # If a breakpoint is detected, we call an internal                            # If a breakpoint is detected, we call an internal
+               # handler.                                                                    # handler.
+             elif exception == EXCEPTION_BREAKPOINT:                                       elif exception == EXCEPTION_BREAKPOINT:
+               continue_status = self.exception_handler_breakpoint()                         continue_status = self.exception_handler_breakpoint()
+
+             elif ec == EXCEPTION_GUARD_PAGE:                                              elif exception == EXCEPTION_GUARD_PAGE:
+               print "Guard Page Access Detected."                                           print "Guard Page Access Detected."
+
+             elif ec == EXCEPTION_SINGLE_STEP:                                             elif exception == EXCEPTION_SINGLE_STEP:
+               print "Single Stepping."                                                      print "Single Stepping."
+
+
+
+             kernel32.ContinueDebugEvent( debug_event.dwProcessId,                        kernel32.ContinueDebugEvent( debug_event.dwProcessId,
+                                         debug_event.dwThreadId,                                                      debug_event.dwThreadId,
+                                         continue_status )                                                            continue_status )
+       ...                                                                          ...
+
+       def exception_handler_breakpoint():                                          def exception_handler_breakpoint(self):
+                                                                                                                                                                        Print
+Page                                       Error                                                                        Correction
+                                                                                                                                                                      corrected
+
+44                                                                                                                                                                    Print 8
+       self.breakpoints[address] = address,original_byte)                              self.breakpoints[address] = original_byte)
+
+
+48                                                                                                                                                                    Print 8
+       def bp_set_hw(self, address, length, condition):                                def bp_set_hw(self, address, length, condition):
+       --snip--                                                                        --snip--
+         # We want to set the debug register in every thread                             # We want to set the debug register in every thread
+         for thread_id in self.enumerate_threads():                                      for thread_id in self.enumerate_threads():
+           context = self.get_thread_context(thread_id=thread_id)                          context = self.get_thread_context(thread_id=thread_id)
+
+          # Enable the appropriate flag in the DR7                                        # Enable the appropriate flag in the DR7
+          # register to set the breakpoint                                                # register to set the breakpoint
+          context.Dr7 |= 1 << (available * 2)                                             context.Dr7 |= 1 << (available * 2)
+
+        # Save the address of the breakpoint in the                                       # Save the address of the breakpoint in the
+        # free register that we found                                                     # free register that we found
+        if available == 0:                                                                if available == 0:
+          context.Dr0 = address                                                             context.Dr0 = address
+        elif available == 1:                                                              elif available == 1:
+          context.Dr1 = address                                                             context.Dr1 = address
+        elif available == 2:                                                              elif available == 2:
+          context.Dr2 = address                                                             context.Dr2 = address
+        elif available == 3:                                                              elif available == 3:
+          context.Dr3 = address                                                             context.Dr3 = address
+
+        # Set the breakpoint condition                                                    # Set the breakpoint condition
+        context.Dr7 |= condition << ((available * 4) + 16)                                context.Dr7 |= condition << ((available * 4) + 16)
+
+        # Set the length                                                                  # Set the length
+        context.Dr7 |= length << ((available * 4) + 18)                                   context.Dr7 |= length << ((available * 4) + 18)
+
+        # Set thread context with the break set                                           # Set thread context with the break set
+        h_thread = self.open_thread(thread_id)                                            h_thread = self.open_thread(thread_id)
+        kernel32.SetThreadContext(h_thread,byref(context))                                kernel32.SetThreadContext(h_thread,byref(context))
+
+
+49                                                                                                                                                                    Print 14
+               elif self.context.Dr6 & 0x8 and self.hardware_breakpoints.has_key(3):          elif self.context.Dr6 & 0x8 and self.hardware_breakpoints.has_key(3):
+                   slot = 3                                                                       slot = 3
+           else:                                                                              else:
+

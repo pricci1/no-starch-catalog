@@ -1,0 +1,1032 @@
+  Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+
+
+
+                                  7
+                      TELEPORTATION
+                                 Hey, hey, hey.
+                            You know, don’t be mean.
+                            We don’t have to be mean.
+                    ’Cuz remember, no matter where you go . . .
+                                  there you are.
+    —Earl Mac Rauch, The Adventures of Buckaroo Banzai Across the 8th Dimension,
+                                   1984 [170]
+
+
+
+
+            In this chapter, we’ll meet our first com-
+           plete quantum algorithm! This algorithm
+          doesn’t perform a calculation or give us the
+       answer to a specific problem. Instead, it per-
+forms a unique, fascinating task: moving the quantum
+state of one qubit to another qubit, located anywhere
+in the universe. And it does this instantaneously.
+    Wait, the no-cloning theorem from Chapter 5 tells us we can’t do this,
+right? The theorem does say that we can’t make a copy of a quantum state,
+but it doesn’t prohibit us from moving a state from one qubit to another,
+leaving the original qubit in a different state from how it started.
+                    Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+                        This process has an exciting name: quantum teleportation, or just
+                  teleportation. It’s not quite teleportation the way the term is used in sci-
+                  ence fiction like Star Trek, though. We really do communicate the states
+                  of a quantum bit from here to there, but there are four big differences.
+                        The first is that we’re not transferring any kind of matter. We’re only
+                  communicating the state of a qubit. Even if we transferred the state of enor-
+                  mous numbers of qubits, we still don’t have any means for assembling the
+                  physical objects that have been put into those states into a grumpy but hu-
+                  mane doctor, an exploding warp drive, or even a rock.
+                        The second difference is that we can’t send the description of the qubit
+                  anywhere we like. We can only transfer the state of a qubit to another qubit
+                  it’s already been entangled with, and which is already present at the receiv-
+                  ing site.
+                        The third difference is that to reliably transfer the state of a quantum
+                  bit from one place to another, we must also exchange two classical bits over
+                  normal, classical channels, such as radio. That means we can’t rely on this
+                  method to share information unless we also share some classical bits over
+                  conventional channels.
+                        Finally, the fourth difference is that when we move a quantum state
+                  from one qubit to another, the state of the original qubit is changed, and
+                  we can’t recover its original value.
+                        Given all of these qualifiers, it might be better to call this quantum state
+                  transfer rather than teleportation. It’s not Star Trek by a long shot, but trans-
+                  ferring the state of one quantum particle to another quantum particle is still
+                  pretty cool.
+                        Three features that real quantum teleportation has over the fictional ver-
+                  sion are that distance doesn’t matter, nothing can interfere with the process, and the
+                  original must be destroyed to be transported. The first property means that the
+                  source and target can be literally anywhere in the universe. The second two
+                  properties protect us from ever accidentally creating an “evil Spock” [176].
+                        In this chapter, we’ll work a lot with explicit qubit states and the matri-
+                  ces of the operators that modify them. This is unusual. Most of the time,
+                  when we analyze a quantum algorithm, we work entirely (or nearly so) with
+                  algebra and rarely get down to the level of coefficients. Most of the rest of
+                  this book follows that approach. But sometimes working with the actual
+                  coefficients can be illuminating, bringing us a little closer to the mechan-
+                  ics of quantum computing. It also allows us to view an algebraic result in a
+                  different way, if there aren’t too many qubits involved. For these reasons,
+                  in this chapter we’ll spend most of our time with components, and we’ll see
+                  explicitly how the operator matrices manipulate the elements of the ket ma-
+                  trices. You won’t need to memorize any of these eight-by-eight matrices, as
+                  they’re all built up from the smaller two-by-two matrices that we’re already
+                  familiar with.
+                        Okay, enough prep. Let’s get teleporting!
+
+
+
+
+208   Chapter 7
+          Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+The Teleportation Thought Experiment
+        A great way to think about teleportation is in terms of a story, or what physi-
+        cists call a thought experiment. This story involves two characters. In physics
+        thought experiments with two characters, they are almost always named
+        Alice and Bob, so I’ll carry on that tradition here.
+             In this story, we imagine that Alice and Bob are separated by a great dis-
+        tance: Maybe Alice is on Earth, and Bob is on Mars. Alice has run some al-
+        gorithm that produces a quantum state, which I’ll call the signal, described
+        by a ket s with the state |σ⟩ = α |0⟩ + β |1⟩, where as always |α|2 + |β|2 = 1.
+        Producing this state is only the first part of a two-part computation. Bob
+        is ready to take over from here and finish the computation, so he needs to
+        have a qubit in the state |σ⟩.
+             Alice could send her physical qubit to Bob, so he can work with it. But
+        let’s say that Bob is so remote, and sending things is so slow and expensive,
+        that there’s no practical way for Alice to physically send her qubit to Bob.
+             To get around this limitation, suppose that Bob has taken a qubit named
+        b to Mars. Taken together, Alice’s qubit s and Bob’s qubit b form a two-qubit
+        system s ⊗ b. When we think of s and b as a system, it doesn’t matter that the
+        qubits are far apart from one another.
+             Because s is in the state |σ⟩, it would be great if there were some sequence
+        of operations that Alice, or Bob, or both of them could follow that would
+        give them the qubit system state |σ⟩ ⊗ |σ⟩. Then Bob’s qubit b would also
+        be in the state |σ⟩, and they’d have teleported the signal! Unfortunately, this
+        means making a copy of |σ⟩, and we know that the no-cloning theorem pro-
+        hibits that.
+             Maybe we can avoid cloning if Alice’s qubit is changed during teleporta-
+        tion. For example, it might go from |σ⟩ to some other state, |ω⟩. Now if we
+        can put |σ⟩ onto Bob’s qubit, the new system will be |ω⟩ ⊗ |σ⟩. There will
+        be no cloning, and they’ll have teleported the signal!
+             That would be great, but nobody has found a way to do it.
+             A way that does work requires giving Alice one more qubit. This extra
+        qubit (let’s call it a, for auxiliary) will help us perform teleportation.
+             But how does this help Alice, in her lab on Earth, modify Bob’s qubit
+        on Mars? The answer is to link all three qubits together, so that when Alice
+        manipulates her qubits s and a, those operations have an effect on Bob’s
+        qubit b.
+             We know how to do that: Use entanglement! If Alice and Bob created
+        an entangled pair before Bob left, and each kept one qubit of the pair with
+        them, operations on either qubit could affect the other.
+             We still need some way for Alice to move |σ⟩ onto Bob’s qubit. The key
+        idea is to create a system state of three qubits that I call the teleportation state,
+        which I’ll write as |τ ⟩. This is the heart of the whole algorithm. Figure 7-1
+        shows the teleportation algorithm in two steps.
+
+
+
+
+                                                                             Teleportation   209
+                     Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+
+
+
+                   Figure 7-1: The teleportation algorithm can be
+                   viewed as two steps.
+
+                        We can view the first step as climbing a hill to put the qubits into the
+                   teleportation state |τ ⟩. We plant our flag (the state |τ ⟩) at the top of the hill
+                   and then head down the other side, using |τ ⟩ to put Bob’s qubit b into the
+                   state |σ⟩ that Alice’s qubit s was initially in. We don’t care about the final
+                   states of qubits s and a, so I’ve left them blank in the figure.
+                        Because the teleportation state |τ ⟩ is at the center of the whole process,
+                   let’s take a closer look at it.
+
+
+      The Teleportation State |τ ⟩
+                   Let’s write the qubits s, a, and b in the teleportation state. A 3-qubit state has
+                   23 = 8 elements. Creating the teleportation state takes only a few quantum
+                   gates, and I’ll show you that circuit later in this chapter. For now, I’ll ask you
+                   to take it on faith that Alice and Bob can create |τ ⟩.
+                        The teleportation state involves the qubits s, a, and b. Let’s write these
+                   in order from top to bottom, as in Figure 7-2. We’ll see that the three qubits
+                   are entangled together, so their output is the single entangled state |τ ⟩.
+
+
+                     s
+                     a              |τ ⟩
+
+                     b
+                   Figure 7-2: The three qubits
+                   s, a, and b arranged from
+                   top to bottom, making up
+                   the entangled state |τ ⟩
+
+                        The teleportation state |τ ⟩ is an equal superposition of four states. Each
+                   is the original |σ⟩, perhaps transformed by one or two specific operators.
+
+210    Chapter 7
+  Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+    The state |τ ⟩ is shown in Equation 7.1.
+
+                1                                                    
+       |τ ⟩ =      |00⟩ I |σ⟩ + |01⟩ X |σ⟩ + |10⟩ Z |σ⟩ + |11⟩ XZ |σ⟩               (7.1)
+                2
+     At first glance, it looks like we’ve cloned |σ⟩ not just once but three
+times. But a closer look reveals that there’s been no cloning. What we’ve
+done is create additional states involving α and β in a single superposition.
+     We’ve been doing this kind of thing for several chapters now. For exam-
+ple, suppose we apply an H qugate to |σ⟩. The resulting state is √  shown on
+the right side of Equation 7.2 (recall our convention that ∨ = 1/ 2).
+                                   "       #" #     "      #
+                                     1   1 α          α+β
+                        H |σ⟩ = ∨                =∨                          (7.2)
+                                     1 –1 β           α–β
+
+     The final state is an equal superposition of (α + β) |0⟩ and (α – β) |1⟩.
+Both coefficients α and β appear twice, but we haven’t cloned anything.
+Eventually, we’ll make a measurement, causing this superposition to col-
+lapse, and only one of the states will be associated with the qubit. The same
+is true of |τ ⟩.
+     Let’s return to |τ ⟩ in Equation 7.1. It’s composed of four states in an
+equal superposition.
+     In the first state, |00⟩ I |σ⟩, the |00⟩ term refers to the two-qubit state
+|0⟩ ⊗ |0⟩. We then tensor this with I |σ⟩. This is really just |σ⟩, but I in-
+cluded the I for consistency with the other states.
+     The second state, |01⟩ X |σ⟩, tells us to first form |0⟩ ⊗ |1⟩ and then ten-
+sor that with X |σ⟩, or the result of applying the X qugate to the original |σ⟩.
+     The third state, |10⟩ Z |σ⟩, is like the previous one. We first form the
+state |1⟩ ⊗ |0⟩ and then tensor that with Z |σ⟩.
+     Finally, |11⟩ XZ |σ⟩ tensors together |1⟩ ⊗ |1⟩ with the state made by ap-
+plying Z and then X (in that order) to |σ⟩ (remember that we read algebraic
+operators from right to left).
+     It’s the structure of |τ ⟩ that enables teleportation. In Figure 7-2, the
+first two qubits of |τ ⟩ correspond to s and a and the third to b.
+     If Alice measures qubits s and a, then as usual she’ll get back a single bit
+for each. Let’s say she finds s = 1 and a = 0. Then the law of partial measure-
+ment tells us that the superposition describing the entire system must collapse
+to contain only those states that are consistent with Alice’s measurement.
+There is only one such state in |τ ⟩, |10⟩ Z |σ⟩, and therefore, with certainty,
+Bob’s qubit b is now in the state Z |σ⟩. Bob knows that Z is its own inverse,
+or ZZ = I, so he can apply Z to this state to get ZZ |σ⟩ = |σ⟩.
+     Voilá, Bob’s qubit b has the state |σ⟩. Teleportation achieved!
+     As promised, there’s been no cloning. In order for Alice’s signal |σ⟩ to
+make it to Bob’s qubit, Alice had to measure both s and a. The process of
+measuring s collapsed it to either |0⟩ or |1⟩, destroying Alice’s copy of |σ⟩,
+thereby enabling us to move |σ⟩ to Bob’s qubit without cloning.
+
+
+
+                                                                    Teleportation    211
+                     Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+      The Teleportation Process
+                   We can think of teleportation as a four-step process. This will enable us to
+                   view the big picture in four smaller chunks that we can then assemble at
+                   the end.
+                       The four steps are how Alice and Bob make the teleportation state |τ ⟩,
+                   how Alice measures the state of the qubits, how Alice tells Bob which of the
+                   four states |τ ⟩ collapsed to, and how Bob applies the correct qugates to get
+                   the original |σ⟩. Let’s take these in order.
+
+
+                   Building |τ ⟩
+                   Alice and Bob build the teleportation state |τ ⟩ in three steps. The first step
+                   entangles the qubits a and b, the second entangles s with the other two qubits,
+                   and the third performs one final step of processing.
+                       Alice and Bob start everything off while they’re still together on Earth.
+                   After lunch one day, they head to Alice’s lab to make two qubits, named a
+                   and b, both in state |0⟩. They entangle a and b in the same way that we saw
+                   in Figure 5-26. The traditional way to write this in a teleportation circuit is
+                   for Bob to apply H to b and then apply a CX using b as a control and a as a
+                   target, as shown in Figure 7-3(a).
+
+                                                                            I⊗H           CXba
+
+                    a |0⟩                                       a |0⟩        I
+                                                 |βs + ⟩                                         |βs + ⟩
+                     b |0⟩       H                              b |0⟩       H
+
+
+                                 (a)                                                (b)
+                   Figure 7-3: (a) Entangling a and b. (b) Explicitly including an identity on a and
+                   naming the operator systems.
+
+                        This CX is drawn upside down compared to how I’ve usually drawn
+                   it before, with the control under the target. We saw this previously in
+                   Equation 5.48, where I called it CX′ . We confirmed there that this works
+                   just as we’d hoped, with the target on the lower line controlling the applica-
+                   tion of the X qugate on the upper line. In this algorithm, I’ll call the qugate
+                   CXba to emphasize that qubit b is controlling qubit a. As a reminder, the
+                   matrix form of CXba from Equation 5.48 is given in Equation 7.3.
+                                                                               
+                                                            1 0         0   0
+                                                                             
+                                                           0 0         0   1
+                                                    CXba = 
+                                                           
+                                                                              
+                                                                                                          (7.3)
+                                                           0 0         1   0
+                                                               0 1      0   0
+
+
+
+
+212    Chapter 7
+    Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+       Returning to our entanglement step, our experience from Chapter 5
+  tells us that the output of Figure 7-3 should be |βs + ⟩. We can confirm this by
+  first tensoring together a = |0⟩ and b = |0⟩ to make the starting state |00⟩,
+  then modifying them by the system I ⊗ H shown in Figure 7-3(b). This qugate
+  system is written out in Equation 7.4.
+                                                                       
+                    "     #    "    #     1  1 0                    0
+                                                                 
+                      1 0       1  1     1 –1 0                 0
+               I⊗H=         ⊗∨        = ∨                                             (7.4)
+                                                                 
+                      0 1       1 –1     0  0 1                 1
+                                                     0    0   1 –1
+
+     The second system is CXba , which we just found. Let’s apply both sys-
+  tems to the starting state |00⟩, as shown in Equation 7.5.
+
+CXba (I ⊗ H) |00⟩ = CXba ((I ⊗ H) |00⟩)                   Apply I ⊗ H first
+                                           
+                               1    1 0    0 1
+                                           
+                          1 –1 0         0  
+                                             0  Use I ⊗ H from Eq. 7.4
+                  = CXba 
+                         ∨ 
+                              
+                                             
+                          0       0 1    1 0 
+                             0    0     1 –1 0
+                           
+                           1
+                           
+                          1
+                 = CXba ∨ 
+                           
+                                                         Multiply the matrices
+                          0
+                           0
+                                                                                    (7.5)
+                    1 0 0 0         1
+                                  
+                   0 0 0 1 1
+                 =
+                                 ∨ 
+                                                       Use CXba from Eq. 7.3
+                   0   0  1   0  0
+                    0 1 0 0         0
+                      
+                      1
+                      
+                     0
+                 = ∨  
+                                                        Multiply the matrices
+                     0
+                      1
+                 = ∨(|00⟩ + |11⟩) = |βs + ⟩               The Bell state |βs + ⟩
+
+       Great! Figure 7-3 does indeed give us the Bell state |βs + ⟩.
+       In our thought experiment, Bob now places qubit b in a special bottle
+  and takes it with him to Mars. Alice also places a in a special bottle and puts
+  it somewhere safe in her lab.
+       A year passes. One day, Alice completes her experiment, resulting in a
+  qubit named s in the state |σ⟩. This is the state she wants to send to Bob.
+
+
+
+                                                                        Teleportation    213
+                    Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+                       Alice can only modify s and a, the qubits that she has with her on Earth.
+                  In order for Alice to cause operations on the qubits s or a to affect Bob’s qubit
+                  b far away, qubits s and a need to be entangled with b. She can create that
+                  entanglement by using s as the control on a CX targeting either a or b. Of
+                  these, only a is in the lab with Alice, so she entangles s with a. This second
+                  entanglement step is shown in Figure 7-4. I’ve written CXsa for the CX in the
+                  usual orientation, using s as a control on a.
+
+
+                                   |ϕ0 ⟩ |ϕ1 ⟩                       |ϕ0 ⟩    CXsa ⊗ I   |ϕ1 ⟩
+                             s |σ⟩                             s |σ⟩
+
+                               a                                 a
+                   |βs + ⟩                           |βs + ⟩
+                               b                                 b                 I
+
+
+                                   (a)                                       (b)
+                  Figure 7-4: (a) Entangling s and a. (b) Including the implied I qugate.
+
+                      Because we’re focusing here on matrix elements, let’s write out the com-
+                  ponents of the qubit system |ϕ0 ⟩, the system just before Alice entangles s
+                  with a. This is |σ⟩, the state of Alice’s qubit s, tensored with |βs + ⟩, which we
+                  derived in Equation 7.5. The result is shown in Equation 7.6.
+                                                                              
+                                                                              α
+                                                                              
+                                                                             0
+                                                                            
+                                                                             0
+                                                               " #     1      
+                                                                            
+                                                                α     0    α
+                                                          +
+                                         |ϕ0 ⟩ = |σ⟩ ⊗ |βs ⟩ =     ⊗ ∨  = ∨
+                                                                       
+                                                                              
+                                                                                                (7.6)
+                                                                β     0    β 
+                                                                              
+                                                                       1     0
+                                                                              
+                                                                              
+                                                                             0
+                                                                               β
+
+                      Now we’ll entangle s with a. Figure 7-4(a) shows using s as a control on
+                  a. As usual, it omits the identity qugate I we could place on the b line. But
+                  although it’s not in the picture, that identity must be in our operator!
+
+
+
+
+214   Chapter 7
+  Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+     Let’s write out this matrix, as shown in Equation 7.7. Because CXsa ap-
+plies a control on the topmost line to a target immediately below it, its ma-
+trix is the familiar CX matrix.
+                                                                      
+                                             1 0 0 0 0 0 0 0
+                                                                      
+                                           0 1 0 0 0 0 0 0
+                                                                    
+                                           0 0 1 0 0 0 0 0
+                1 0 0 0                                               
+                             "         #                            
+               0 1 0 0           1 0      0 0 0 1 0 0 0 0
+                                                                     (7.7)
+   CXsa ⊗ I =               ⊗           =                           
+               0    0  0  1      0   1    0  0  0   0  0   0  1   0 
+                                                                      
+                                                                      
+                0 0 1 0                    0 0 0 0 0 0 0 1
+                                                                      
+                                           0 0 0 0 1 0 0 0
+                                              0 0     0   0   0   1   0     0
+
+   Now we can apply the system CXsa ⊗ I to the state |ϕ0 ⟩ we found in
+Equation 7.6 to get |ϕ1 ⟩, as shown in Equation 7.8.
+                                                                    
+                             1    0   0   0   0   0   0   0     α       α
+                                                                    
+                            0    1   0   0   0   0   0       
+                                                          0  0        
+                                                                      0
+                            0                                         
+                                 0   1   0   0   0   0   0  0      0
+                                                                    
+                            0                            0          
+ |ϕ1 ⟩ = (CXsa ⊗ I) |ϕ0 ⟩ = 
+                                  0   0   1   0   0   0     ∨ α = ∨ α (7.8)
+                                                                    
+                            0    0   0   0   0   0   1   0 β       0
+                                                                    
+                            0    0   0   0   0   0   0       
+                                                          1  0     β 
+                                                                       
+                                                                    
+                            0    0   0   0   1   0   0   0  0      β 
+                              0 0     0   0   0   1   0   0      β       0
+
+     I’ll be pragmatic now. Looking at |ϕ1 ⟩ in Equation 7.8, what would it
+take to turn this into the teleportation state |τ ⟩ in Equation 7.1?
+     The trick is to write out |τ ⟩ as a single state and compare it to |ϕ1 ⟩ in
+Equation 7.8. Then we’ll see if we can find a sequence of operations that
+juggle around the elements of |ϕ1 ⟩ so that they match |τ ⟩.
+     I’ll find this explicit form of |τ ⟩ in two steps. First, I’ll expand each basis
+state |00⟩ through |11⟩ into its corresponding four-element ket, and then I’ll
+replace each modified version of |σ⟩ with the coefficients of its matrix.
+     As Equation 7.1 shows, we’ll need four transformations in all, one for
+each basis state.
+
+
+
+
+                                                                      Teleportation   215
+                    Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+                      Equation 7.9 summarizes those four transformations for reference. In
+                  the fourth row, I applied Z and X operators (in that order) to make the com-
+                  bined operator XZ.
+                                                   "    #" #        " #
+                                                     1 0 α           α
+                                           I |σ⟩ =                =
+                                                     0 1 β           β
+                                                   "    #" #        " #
+                                                     0 1 α           β
+                                           X |σ⟩ =                =
+                                                     1 0 β           α
+                                                   "     #" #       " #                    (7.9)
+                                                     1  0 α           α
+                                           Z |σ⟩ =                =
+                                                     0 –1 β          –β
+                                                   "     #" #       " #
+                                                     0 –1 α          –β
+                                          XZ |σ⟩ =                =
+                                                     1 0    β         α
+
+                      With these in hand, let’s rewrite |τ ⟩. The steps are in Equation 7.10.
+                  The first line repeats |τ ⟩ from Equation 7.1. The second line expands the
+                  basis states into kets, and the third replaces each modified version of |σ⟩
+                  with its state from Equation 7.9. In this last line, the rules of operator prece-
+                  dence tell us to perform the tensor operations before the additions.
+                         1                                                     
+                    |τ ⟩ =  |00⟩ I |σ⟩ + |01⟩ X |σ⟩ + |10⟩ Z |σ⟩ + |11⟩ XZ |σ⟩
+                         2
+                                                                      
+                              1            0            0            0
+                                                                      
+                         1
+                             0
+                               
+                                          1
+                                            
+                                                       0
+                                                         
+                                                                    0
+                                                                    
+                                                                               
+                        =    I |σ⟩ +   X |σ⟩ +   Z |σ⟩ +   XZ |σ⟩ 
+                                                                       
+                                                                               
+                         2  0          0          1          0        
+                              0            0            0            1                (7.10)
+                                                                           
+                              1              0              0              0
+                             " #   " #   " #   " #
+                            
+                         1 0        α    1     β      
+                                                            0      α     0    –β 
+                        =      ⊗      +   ⊗       +
+                                                             ⊗        +
+                                                                         
+                                                                            ⊗
+                                                                            
+                                                                                    
+                         2  0       β    0      α    1      –β    0      α 
+                                                                                    
+                              0              0              0              1
+                     Finally, let’s explicitly compute the tensor products in the last line of
+                  Equation 7.10, giving us Equation 7.11.
+                                                                    
+                                              α     0      0       0            α
+                                                                    
+                                          β   0   0   0            β
+                                                                    
+                                           0  β   0   0            β
+                                                                    
+                                                                    
+                                       1    0  α  0   0   1  α 
+                                |τ ⟩ =    +   +   +    = 
+                                                                        
+                                                                                            (7.11)
+                                       2  0 0  α   0   2          α
+                                                                    
+                                           0   0  –β   0           –β 
+                                                                    
+                                                                    
+                                           0   0   0  –β           –β 
+                                              0     0      0       α            α
+
+216   Chapter 7
+  Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+     Great! Now we have an eight-element ket for |τ ⟩. This is the very same
+τ we originally saw in Equation 7.1, but it’s now represented as a single state
+vector, where all three qubits are entangled together.
+     This |τ ⟩ is our goal. We want to turn the |ϕ1 ⟩ in Equation 7.8 into this
+|τ ⟩. How can we do this? Is there some operator A (or some sequence of
+operators that we can multiply together to make A) that we can plug into
+Equation 7.12 to do the trick?
+                                                   
+                                               α      α
+                                                   
+                                              0   β
+                                                   
+                                              0   β
+                                                   
+                                                   
+                                              α 1  α 
+                   A |ϕ1 ⟩ = |τ ⟩ ,   or   ∨ A  = 
+                                                 
+                                                     
+                                                                                 (7.12)
+                                              0 2  α 
+                                                   
+                                              β   –β 
+                                                   
+                                                   
+                                              β   –β 
+                                                0     α
+
+     Happily, we can indeed build an operator A that does just what we want.
+If you write down Equation 7.12 with a big empty matrix for A, then you can
+work through each element and fill in the entries. You’ll find some elements
+must be 1, others –1, and still others must be 0. And to turn the ∨ in |ϕ1 ⟩
+into the 1/2 in |τ ⟩, the matrix will need to include another factor of ∨. The
+resulting matrix is shown in Equation 7.13.
+                                           
+         1     0   0   0    1     0    0   0
+                                           
+        0
+              1   0   0    0     1    0   0
+                                            
+        0
+              0   1   0    0     0    1   0
+                                                                
+                                                  I4       I4
+        0     0   0   1    0     0    0    
+                                           1
+       ∨
+                                            = ∨                               (7.13)
+        1     0   0   0 –1       0    0   0       I4      –I4
+                                           
+        0
+              1   0   0    0 –1       0   0
+                                            
+                                           
+        0     0   1   0    0     0 –1     0
+           0   0   0   1    0     0    0 –1
+
+     You can pull this pattern apart, as shown by the block matrix on the
+right. In the upper-left, upper-right, and lower-left blocks, we have the 4-by-4
+identity matrix given by I4 = I ⊗ I. In the bottom-right block, we have its neg-
+ative, –(I ⊗ I). This pattern of positives and negatives is just what we get from
+forming H ⊗ (I ⊗ I). The parentheses aren’t needed, but I’ve put them there
+to emphasize that we’re thinking of I ⊗ I as one matrix that gets tensored
+with H.
+     In other words, the matrix in Equation 7.13 that takes us from |ϕ1 ⟩ to |τ ⟩
+is given by H ⊗ I4 , or H ⊗ I ⊗ I. In the circuit diagram, we draw an H on the
+top line and usually just imply the I qugates, as in Figure 7-5(a). Figure 7-5(b)
+shows what it looks like with the I qugates drawn explicitly.
+
+                                                                  Teleportation     217
+                    Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+
+                         |ψ1 ⟩       |τ ⟩                |ψ1 ⟩        H⊗I⊗I            |τ ⟩
+
+                    s            H                  s                       H
+
+                   a                                a                       I
+
+                    b                               b                       I
+
+
+                             (a)                                      (b)
+                  Figure 7-5: (a) Applying the final H to the top qubit, giving us the
+                  teleportation state |τ ⟩. (b) Including the implied I qugates.
+
+                      This process demonstrates that sometimes we build up a circuit from prin-
+                  ciples, and sometimes we just create something that performs a specific task.
+                      Let’s put it all together. Starting with qubits a and b in the state |0⟩,
+                  we entangle them with an H and CXba , then we apply CXsa , and finally we
+                  apply an H to s to create the teleportation state |τ ⟩. The process is shown in
+                  Figure 7-6.
+
+
+                    s |σ⟩                                  H
+
+                    a |0⟩                                                       |τ ⟩
+
+                    b |0⟩            H
+
+                  Figure 7-6: The full setup step for teleportation
+
+                       This is the conceptual peak of the argument: We’ve created the telepor-
+                  tation state |τ ⟩. The hard work is done! Now we’re on the downhill slope
+                  from Figure 7-1.
+
+
+                  Alice Measures Her Qubits
+                  Now that the teleportation state has been set up, Alice will collapse it to just
+                  one state. This will push the state |σ⟩ onto Bob’s qubit (because it will have
+                  nowhere else to go) and simultaneously collapse the qubit s that has held |σ⟩
+                  until now.
+                       Alice can measure her two qubits s and a in either order, or even at
+                  the same time. Appending this measurement to our existing circuit from
+                  Figure 7-6 gives us Figure 7-7. I’m labeling the output bits with the letter m
+                  (for measurement) rather than my usual b (for bit) because we’re already
+                  using b for Bob’s qubit.
+
+
+
+
+218   Chapter 7
+  Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+
+  s |σ⟩                                 H               ms
+
+  a |0⟩                                                 ma
+
+  b |0⟩         H
+
+Figure 7-7: After the circuit of Figure 7-6, Alice measures
+her qubits.
+
+     Let’s write the measured values from this system as a bitstring ms ma .
+     Suppose that Alice measures ms = 0 and ma = 1, or the bitstring 01. The
+law of partial measurement says that the system state |τ ⟩ must collapse to
+states that are consistent with this measurement. That is, the system collapses
+to include only those states that start with |01⟩. There is only one such state
+in |τ ⟩ from Equation 7.1, and that’s |01⟩ X |σ⟩. So in this case, after the
+measurement, Alice’s qubits a and s are now |0⟩ and |1⟩ respectively, and
+Bob’s qubit b must be X |σ⟩.
+
+
+Alice Tells Bob the Measurements
+When Alice’s measurements are complete, our three-qubit system has col-
+lapsed to one of the four states in Equation 7.1. That is, depending on what
+Alice measured, Bob is holding a qubit that is in the state I |σ⟩, or in the
+state X |σ⟩, or in the state Z |σ⟩, or in the state XZ |σ⟩.
+     If Bob can determine the state of his qubit, he can apply the correct
+qugates to leave him with |σ⟩. So the big question is, how can Bob tell which
+state he has?
+     That depends on what Alice measured. So the new question is, how can
+Bob determine what Alice saw on her meters?
+     The answer is that he can’t! Alice has to tell him.
+     There’s no quantum way for Alice to tell Bob anything, because Alice
+has already collapsed their entangled states.
+     The only remaining way for Alice to tell Bob what she measured is by
+using classical means. She can send the values of her two measurements via
+radio, or she can use a laser to bounce light off the moon, or she can send
+him a newspaper with the measurements printed somewhere. No matter
+how she chooses to send this information to Bob, she needs to use classical
+means, which are limited by the speed of light.
+
+
+Bob Recovers |σ⟩
+Once Bob receives the two classical bits that Alice sent, telling him what she
+measured, he can recover |σ⟩ from his qubit. His work is made easier by
+another remarkable feature of the structure of the teleportation state: Bob
+will need only two qugates!
+
+
+
+                                                                 Teleportation   219
+                    Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+                       The idea is that Bob will use the received classical bits as controls on a
+                  controlled-X qugate and a controlled-Z qugate. We’ve only discussed using
+                  quantum bits as controls, but we can use classical bits as well. Think of ini-
+                  tializing a pair of qubits using the corresponding bits.
+                       To see what Alice’s measurements tell Bob, I’ve repeated the teleporta-
+                  tion state |τ ⟩ from Equation 7.1 here as Equation 7.14.
+
+                                   1                                                    
+                         |τ ⟩ =       |00⟩ I |σ⟩ + |01⟩ X |σ⟩ + |10⟩ Z |σ⟩ + |11⟩ XZ |σ⟩     (7.14)
+                                   2
+                       Bob’s actions to recover |σ⟩ are shown in Figure 7-8.
+                                             
+                              ma           ms
+
+
+                   b          X            Z        |σ⟩
+
+                  Figure 7-8: Bob decoding his qubit
+                  based on Alice’s classical bits
+
+                       Let’s look at the four possible pairs of bits that Bob might receive.
+                       If Alice measured 00, then ma = ms = 0. Equation 7.14 tells us that when
+                  Alice measures 00, Bob has I |σ⟩ = |σ⟩. Since both controls are 0, neither
+                  qugate is applied. This is just right, because Bob already has I |σ⟩ = |σ⟩, and
+                  he’s done.
+                       If Alice measured 01, then ms = 0 and ma = 1. Equation 7.14 tells us that
+                  Bob’s qubit is in state X |σ⟩. Bob applies the controlled-X qugate, and because
+                  X is its own inverse, this gives him XX |σ⟩ = |σ⟩, and he’s recovered |σ⟩.
+                       If Alice measured 10, then ms = 1 and ma = 0. This tells Bob to apply
+                  the controlled-Z qugate. Like the X qugate, Z is its own inverse, so Bob gets
+                  ZZ |σ⟩ = |σ⟩.
+                       Finally, If Alice measured 11, then ma = ms = 1, and Bob knows that his
+                  qubit is XZ |σ⟩. To undo the transformation XZ, Bob applies X and then Z
+                  in that order, which is equivalent to applying the single operator ZX (re-
+                  member to read the operators from right to left). The steps are shown in
+                  Equation 7.15.
+
+                                       ZX(XZ) |σ⟩ = Z(XX)Z |σ⟩ Regroup matrix multiplies
+                                                  = ZZ |σ⟩     Since XX = I                  (7.15)
+                                                  = |σ⟩        Since ZZ = I
+
+                      It’s important to keep the order of the operations at each point in the
+                  algorithm clear in your mind. If Alice’s qubit is in the state XZ |σ⟩, then to
+                  recover |σ⟩ Bob has to apply the inverse of operator XZ, which is ZX.
+                      And we’re done. For each of Alice’s four possible measurements, Bob
+                  has successfully ended up with his qubit in the state |σ⟩. We’ve teleported
+                  |σ⟩ from Alice to Bob!
+
+
+
+220   Chapter 7
+                     Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+    Drawing the Teleportation Protocol
+                  Let’s now put all the pieces together, giving us Figure 7-9.
+                                                              |τ ⟩
+
+                    s |σ⟩                                 H
+
+                    a |0⟩
+
+                    b |0⟩         H                                        X        Z       |σ⟩
+
+                  Figure 7-9: The full teleportation circuit as it’s normally drawn, with the
+                  teleportation state |τ ⟩ marked
+
+                      Figure 7-9 is the complete, traditional quantum teleportation protocol.
+                  This theoretical process has been experimentally confirmed [22].
+                      However, Figure 7-9 may be somewhat misleading, because it shows all
+                  three qubits at the far left, suggesting that Alice and Bob have them all in
+                  their control at the start of the process. But if Alice already has s in the state
+                  |σ⟩, and Bob is standing there, she could just hand the s qubit (protected
+                  carefully) to Bob, and there would be no need for teleporting anything!
+                      For that reason, I prefer drawing this as in the overall recap of Figure 7-10.
+                  The delayed introduction of s clarifies that s isn’t yet in the state |σ⟩ when
+                  Alice and Bob are entangling a and b. Only later does Alice compute s, and
+                  then continue the protocol.
+
+
+
+
+Figure 7-10: A recap of the quantum teleportation algorithm
+
+                      Teleportation is usually drawn as in Figure 7-9, so keep in mind that in
+                  practice, the qubit s is usually not in the state |σ⟩ at the start, when Alice and
+                  Bob are creating their entangled pair.
+
+    Probabilistic Teleportation
+                  We’ve seen that after Alice has measured her qubits, Bob’s qubit is in one
+                  of the four states in the superposition |τ ⟩, but he doesn’t know which one.
+                  Alice has to tell him by sending him two classical bits by classical means.
+                                                                                                Teleportation   221
+                    Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+                       But let’s suppose that for some reason, Alice can’t send Bob her bits. Is
+                  the situation hopeless for Bob, or is there some way, perhaps with a combi-
+                  nation of effort and luck, that he will be able to recover |σ⟩ from his qubit?
+                       Let’s try another thought experiment.
+                       Suppose that there’s been a terrible accident on Mars. The habitat blew
+                  up when Bob was out on a mission, leaving Bob the only survivor. The explo-
+                  sion also damaged the rocket he and his colleagues were going to use to return
+                  to Earth, and almost all the fuel has leaked out. There’s enough fuel to lift off
+                  the surface, but there isn’t nearly enough to get the rocket back to Earth.
+                       Bob’s supplies will run out long before a rescue mission can reach him,
+                  so he needs to find a new way home.
+                       Luckily, an earlier Mars mission placed an emergency rescue satellite
+                  in Mars orbit. If Bob can reach it, the resources there will not only keep
+                  him alive, but he’ll also be able to repair his rocket. And there’s enough fuel
+                  there to fill the rocket’s tanks. It’s a plan to get home!
+                       Getting his damaged rocket safely up to the rescue satellite will require
+                  an elaborate flight plan with multiple steps that he’ll have to perform at the
+                  right moments. The specific plan for any given day will depend a lot on the
+                  local weather.
+                       Unfortunately, Bob doesn’t have access to the weather satellites above
+                  Mars. But he does have a working radio, and he contacts Alice, who can read
+                  the weather satellite data without a problem. They agree that Alice will use
+                  that data to work out a flight plan for the next day and send it to Bob. Be-
+                  cause these flight plans are complicated, she’ll encode the entire plan into
+                  a single state, |σ⟩. This is a good strategy for them, because before Bob left,
+                  he and Alice created lots and lots of entangled pairs to use for teleporting
+                  states over the duration of Bob’s mission. Bob’s half of each pair survived
+                  the accident. So once Alice tells him her measurements, Bob can take down
+                  the bottle containing the next qubit to be used and apply Alice’s bits to put
+                  it into the state |σ⟩.
+                       On Mars, Bob has cobbled together a decoder to turn a quantum state
+                  sent by Alice into a flight plan. He’s also written a simulation program that
+                  will look at a flight plan and tell him whether it’s safe and he’ll reach the
+                  satellite, or it’s unsafe and the rocket will blow up, along with Bob.
+                       The next morning, as Bob prepares to hear from Alice what her mea-
+                  surements were, Bob’s radio won’t even turn on. It’s busted, and he doesn’t
+                  have the parts to fix it, so now he’s lost all touch with Alice. He can’t get her
+                  measurements, so he can’t confidently process his qubit to turn it into |σ⟩.
+                       Bob isn’t completely without hope, though. He can just plain old guess.
+                  Suppose he guesses that Alice measured 00, so his qubit is in the state I |σ⟩,
+                  and he doesn’t have to process it. He has a three in four chance of being
+                  wrong, but more optimistically, a one in four chance of being right!
+                       So he feeds his qubit into the decoder, which gives him a flight plan. He
+                  then gives that to the safety testing program. If he’s lucky, the test will tell
+                  him that he guessed correctly and that the flight plan makes sense and is
+                  safe. But if he’s unlucky, then his guess was wrong (that is, his qubit wasn’t
+                  in the state |σ⟩, but one of the other states in |τ ⟩). In that case, the decoder
+                  will have produced a nonsensical flight plan, and the test will tell him that
+                  following that plan would end in disaster.
+222   Chapter 7
+  Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+     If Alice and Bob were sharing only a single entangled pair, this would
+be the end of the story. Bob would have no option but to launch the rocket
+anyway and hope for the best.
+     Is there some way, any way, that Bob can improve his odds?
+     Recall that Alice and Bob created not one entangled pair before Bob
+left, but many dozens or hundreds of them. They intended to use them to
+teleport different quantum states over the course of Bob’s mission. But now
+that Alice knows Bob’s radio is out, she’ll use them all right away. Alice will
+run the quantum protocol to teleport the same state |σ⟩ over every pair of
+entangled qubits. Since she can’t clone the |σ⟩ she’s made, she runs her
+plan-making program many times, creating many distinct qubits that are all
+|σ⟩. She plugs each of these qubits into the teleportation protocol, and even
+measures the output bits, though she can’t send them to Bob. At this point,
+she’s done all she can.
+     Back on Mars, suppose that Bob’s guess for his first qubit resulted in a
+meaningless and unsafe flight plan. He hopes that Alice is following their
+backup plan, and gives her some time to compute and entangle |σ⟩ on all of
+their remaining pairs.
+     After a little while, he’ll take down the next of his entangled qubits,
+guess again, and process the qubit according to his guess of what state the
+qubit is in (he could just guess it’s |σ⟩ every time, and apply no qugates to
+it). Then Bob will decode his qubit and test the resulting flight plan, hoping
+it will be safe.
+     The process is shown graphically in Figure 7-11. Alice measures s and
+a, producing classical bits ms and ma , but she does nothing with them. The
+measurements were just to collapse the states of the qubits. Bob then feeds
+his qubit b into the decoding algorithm G that turns that qubit into a flight
+path, represented by the binary number g that comes from measuring the
+output of G. Because g is a classical binary number, Bob can make as many
+copies of it as he pleases.
+     So, Bob makes a copy of g and feeds it into his test, along with whatever
+other inputs it needs. If the test says the flight plan is safe, then he can fol-
+low the steps in g and he’s all set for launch!
+
+
+
+
+Figure 7-11: After Alice has measured her qubits, Bob guesses that he has |σ⟩, computes
+the binary bitstring g, and then tests that bitstring to see if it’s a safe flight plan.
+
+
+                                                                         Teleportation   223
+                    Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+                       If the test tells him that the flight plan is unsafe, he takes down his next
+                  qubit b, makes another guess, and tries again.
+                       Because there’s no way for Bob to be sure beforehand that a given qubit
+                  actually has the value he’s guessing, we might call this process probabilistic
+                  teleportation.
+                       An important thing to keep in mind is that Bob doesn’t really care about
+                  the state |σ⟩. He’ll use each qubit, rather than study it, and it’s the results of
+                  the decoder and test that he cares about.
+                       Once Bob has guessed at the state of any qubit b, he has a one in four
+                  chance, or a probability of 0.25, that he’ll have guessed correctly and the test
+                  will tell him the plan is safe. Those aren’t great odds.
+                       What are the chances that when Bob uses this approach, he will ulti-
+                  mately guess right, and thereby get a safe flight plan that could save his life?
+                       To see Bob’s chances of success, consider his odds of failure. After one
+                  guess (and any processing it might require), there’s a three in four chance
+                  that b is not in the state |σ⟩. Thus, Bob has a 0.75 probability of being wrong
+                  (and getting an unsafe plan). But this means he has a 1 – 0.75 = 0.25 prob-
+                  ability of being right (and getting a safe plan). After two repeats of the tele-
+                  portation, his probability of guessing incorrectly both times is 0.75 × 0.75
+                  = 0.752 = 0.5625. Thus, his probability of being correct at least once is
+                  1 – 0.5625 = 0.4375. Much better!
+                       After n repeats of the protocol, the probability that Bob has guessed
+                  correctly at least once is 1 – 0.75n , which I’ve graphed in Figure 7-12.
+
+
+
+
+                  Figure 7-12: A plot of 1 – 0.75n for n from 1 to 20
+
+                       After 10 repeats, Bob has about a 0.94 probability of having been right
+                  at least once. After 20 repeats, his probability of having been right at least
+                  once is almost 0.997.
+                       If Alice and Bob are willing to share 20 entangled qubits before Bob
+                  leaves, and Alice computes her side of the protocol from scratch 20 times,
+                  and Bob runs his decoder and test 20 times, there’s about a 99.7 percent
+                  likelihood that Bob will have guessed correctly at some point and obtained a
+                  safe flight plan. He only needs one safe flight plan, and he can stop as soon
+                  as he has it.
+224   Chapter 7
+          Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+           After 50 attempts, Bob’s chance of never guessing right, even once, is
+      less than 1 in a million. But even though the odds of Bob guessing correctly
+      go up with each repeat, if he’s super unlucky, he might never guess correctly.
+      Worse, Bob has no way to tell Alice if he’s guessed correctly or not.
+           When Alice and Bob are able or willing to share two classical bits, they
+      can run the classical protocol once and teleport the qubit for sure. If they
+      don’t want to share those classical bits, or they’re unable to, they can hope
+      to teleport the qubit, but they’ll have to put in a lot of extra effort, and they
+      might still fail.
+           To be guaranteed success, Alice needs to send the two classical bits rep-
+      resenting her measurements to Bob, using classical means. If they can’t do
+      that, they can hope that luck is on Bob’s side and he’ll get an answer that
+      passes his test before he runs out of qubits.
+           This is only one of many interesting modifications to the basic telepor-
+      tation algorithm [4] [158] [289]. You can read up on the references, or try
+      your own ideas. Exploring variations on circuits you already understand is a
+      great way to gain experience with quantum algorithms.
+
+
+Summary
+      The teleportation protocol lets us transfer a quantum state from one qubit
+      to another, which can be arbitrarily far away. The process requires that Alice
+      and Bob already share an entangled pair of qubits, and that Alice can trans-
+      mit two classical bits to Bob. Alice’s measurements cause qubit s to collapse.
+      This means that there is never more than one qubit in the state |σ⟩.
+           The big surprise of teleportation is that the state we’ve transferred con-
+      tains two complex numbers, each of which is built from two real numbers,
+      for a total of four real numbers. These numbers can require arbitrary num-
+      bers of digits if written out, but they will be transferred with perfect precision.
+           Once Bob has operated on his state, he can measure it. As always, mea-
+      surement will give him only a 0 or a 1, so there’s no way to extract those four
+      real numbers that were transmitted. But before measurement, Bob can use
+      his qubit, now in state |σ⟩, in further computations. So Bob can then build
+      on Alice’s work, using her result as an input to his own algorithm.
+           Although the collapse of Bob’s qubit is immediate after Alice’s mea-
+      surements, the need to then share classical bits prevents us from using this
+      protocol to send information faster than the speed of light. That’s too bad,
+      but it doesn’t change the fact that quantum teleportation is still a pretty
+      amazing feat.
+           If Alice and Bob have lost all classical communication, and they have
+      some additional resources, they can use a probabilistic approach that is likely
+      to give Bob the state |σ⟩ eventually. But he’ll probably have to try several
+      different instances of b (independently computed by Alice) and then test
+      each result.
+           In this chapter, we looked at the matrix elements behind Alice’s com-
+      putation of the teleportation state |τ ⟩, and then we unpacked that state
+      to teleport |σ⟩ to Bob. We had to deal with a few big matrices, but they
+
+
+                                                                          Teleportation   225
+                    Quantum Computing (Sample Chapter) © 2025 by Andrew Glassner
+
+                  were manageable. In general, a system of n qubits will need an operator de-
+                  scribed by a matrix 2n elements on a side, which quickly becomes too big to
+                  write out and manually compute with. So from now on, we’ll focus on the
+                  algebraic approach most of the time, rather than writing out the matrices
+                  and kets.
+                       Teleportation is an amazing algorithm, and it shows the power of en-
+                  tanglement for sharing information at a great distance. It’s pretty incredible
+                  that Alice can perform some quantum operations on qubits on Earth and
+                  change the states of Bob’s qubits on Mars (or even a planet in orbit around a
+                  star millions of light years away).
+                       In the next few chapters, we’ll look at more quantum algorithms, each of
+                  which introduces one or more new concepts into our quantum repertoire.
+
+
+
+
+226   Chapter 7
+

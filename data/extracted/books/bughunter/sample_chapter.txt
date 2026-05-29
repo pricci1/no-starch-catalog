@@ -1,0 +1,835 @@
+“Give a man an exploit and you make him a hacker for
+a day; teach a man to exploit bugs and you make him a
+hacker for a lifetime.” — Felix “FX” Lindner
+Seemingly simple bugs can have                                        * Develop proof-of-concept code
+drastic consequences, allowing                                          that verifies the security flaw
+attackers to compromise systems,
+                                                                      * Report bugs to vendors or third
+escalate local privileges, and
+                                                                        party brokers
+otherwise wreak havoc on a system.
+                                                                      A Bug Hunter’s Diary is packed with
+A Bug Hunter’s Diary follows
+                                                                      real-world examples of vulnerable
+security expert Tobias Klein as he
+                                                                      code and the custom programs used
+tracks down and exploits bugs in
+                                                                      to find and test bugs. Whether you’re
+some of the world’s most popular
+                                                                      hunting bugs for fun, for profit, or
+software, like Apple’s iOS, the VLC
+                                                                      to make the world a safer place,
+media player, web browsers, and
+                                                                      you’ll learn valuable new skills by
+even the Mac OS X kernel. In this
+                                                                      watching over the shoulder of a
+one-of-a-kind account, you’ll see
+                                                                      professional bug hunter in action.
+how the developers responsible for
+these flaws patched the bugs — or
+failed to respond to them at all.                                       About The Author
+Along the way you’ll learn how to:                                    Tobias Klein is a security researcher
+                                                                      and founder of NESO Security Labs,
+* Use field-tested techniques to
+                                                                      an information security consulting
+  find bugs, like identifying and
+                                                                      and research company. He is the
+  tracing user input data and
+                                                                      author of two information security
+  reverse engineering
+                                                                      books published in the German
+* Exploit vulnerabilities like                                        language by dpunkt.verlag.
+  NULL pointer dereferences,
+  buffer overflows, and type
+  conversion flaws
+
+
+
+
+                                                                              “I LAY FLAT.” This book uses RepKover — a durable binding that won’t snap shut.
+
+     T H E F I N E ST I N G E E K E N T E RTA I N M E N T ™
+     w w w.nostarch.com
+                                                              $39.95 ($41.95 CDN)                              Shelve In:
+                                                                                          Computer Security/Programming
+                              2
+                 Back to the ’90s
+
+
+
+
+Sunday, October 12, 2008
+Dear Diary,
+
+
+I had a look at the source code of VideoLAN’s popular VLC media
+player today. I like VLC because it supports all different kinds of
+media files and runs on all my favorite operating system platforms.
+But supporting all those different media file formats has downsides.
+VLC does a lot of parsing, and that often means a lot of bugs just wait-
+ing to be discovered.
+
+Note    According to Parsing Techniques: A Practical Guide by Dick
+        Grune and Ceriel J.H. Jacobs,1 “Parsing is the process of structur-
+        ing a linear representation in accordance with a given grammar.”
+        A parser is software that breaks apart a raw string of bytes into indi-
+        vidual words and statements. Depending on the data format, parsing
+        can be a very complex and error-prone task.
+
+    After I became familiar with the inner workings of VLC, finding
+the first vulnerability took me only about half a day. It was a ­classic
+stack buffer overflow (see Section A.1). This one occurred while
+
+                     A Bug Hunter's Diary
+                    © 2011 by Tobias Klein
+             parsing a media file format called TiVo, the proprietary format native
+             to TiVo digital recording devices. Before finding this bug, I had never
+             heard of this file format, but that didn’t stop me from exploiting it.
+
+
+             2.1      Vulnerability Discovery
+             Here is how I found the vulnerability:                        ← I used VL
+                                                                                        C 0.9.4 on
+                                                                           the Microsof
+                                                                                        t Windows
+             •    Step 1: Generate a list of the demuxers                  Vista SP1 (3
+                                                                                         2-bit)
+                  of VLC.                                                 platform fo
+                                                                                       r all the
+                                                                          following st
+                                                                                       eps.
+             •    Step 2: Identify the input data.
+             •    Step 3: Trace the input data.
+
+                  I’ll explain this process in detail in the following sections.
+
+             Step 1: Generate a List of the Demuxers of VLC
+             After downloading and unpacking the source code of VLC,2 I gener-
+             ated a list of the available demuxers of the media player.
+
+             Note      In digital video, demuxing or demultiplexing refers to the process
+                       of separating audio and video as well as other data from a video stream
+                       or container in order to play the file. A demuxer is software that extracts
+                       the components of such a stream or container.
+
+                Generating a list of demuxers wasn’t too hard, as VLC separates
+             most of them in different C files in the directory vlc-0.9.4\modules\
+             demux\ (see Figure 2-1).
+
+
+
+
+             Figure 2-1: VLC demuxer list
+
+
+
+
+                                      A Bug Hunter's Diary
+10   Chapter 2                       © 2011 by Tobias Klein
+            Step 2: Identify the Input Data
+            Next, I tried to identify the input data processed by the demuxers.
+            After reading some C code, I stumbled upon the following structure,
+            which is declared in a header file included in every demuxer.
+Source code file   vlc-0.9.4\include\vlc_demux.h
+
+[..]
+41 struct demux_t
+42 {
+43    VLC_COMMON_MEMBERS
+44
+45    /* Module properties */
+46    module_t    *p_module;
+47
+48    /* eg informative but needed (we can have access+demux) */
+49    char        *psz_access;
+50    char        *psz_demux;
+51    char        *psz_path;
+52
+53    /* input stream */
+54    stream_t    *s;     /* NULL in case of a access+demux in one */
+[..]
+
+                In line 54, the structure element s is declared and described as
+            input stream. This was exactly what I was searching for: a reference to
+            the input data that is processed by the demuxers.
+
+            Step 3: Trace the Input Data
+            After I discovered the demux_t structure and its input stream element,
+            I searched the demuxer files for references to it. The input data was
+            usually referenced by p_demux->s, as shown in lines 1623 and 1641
+            below. When I found such a reference, I traced the input data while
+            looking for coding errors. Using this approach, I found the following
+            vulnerability.
+Source code file vlc-0.9.4\modules\demux\Ty.c
+Function parse_master()
+
+[..]
+1623 static void parse_master(demux_t *p_demux)
+1624 {
+1625     demux_sys_t *p_sys = p_demux->p_sys;
+1626     uint8_t mst_buf[32];
+1627     int i, i_map_size;
+1628     int64_t i_save_pos = stream_Tell(p_demux->s);
+1629     int64_t i_pts_secs;
+1630
+1631     /* Note that the entries in the SEQ table in the stream may have
+1632        different sizes depending on the bits per entry. We store them
+1633        all in the same size structure, so we have to parse them out one
+1634        by one. If we had a dynamic structure, we could simply read the
+1635        entire table directly from the stream into memory in place. */
+
+                                 A Bug Hunter's Diary
+                                © 2011 by Tobias Klein             Back to the ’90s   11
+1636
+1637       /* clear the SEQ table */
+1638       free(p_sys->seq_table);
+1639
+1640       /* parse header info */
+1641       stream_Read(p_demux->s, mst_buf, 32);
+1642       i_map_size = U32_AT(&mst_buf[20]); /* size of bitmask, in bytes */
+1643       p_sys->i_bits_per_seq_entry = i_map_size * 8;
+1644       i = U32_AT(&mst_buf[28]); /* size of SEQ table, in bytes */
+1645       p_sys->i_seq_table_size = i / (8 + i_map_size);
+1646
+1647       /* parse all the entries */
+1648       p_sys->seq_table = malloc(p_sys->i_seq_table_size * sizeof(ty_seq_table_t));
+1649       for (i=0; i<p_sys->i_seq_table_size; i++) {
+1650           stream_Read(p_demux->s, mst_buf, 8 + i_map_size);
+[..]
+
+                         The stream_Read() function in line 1641 reads 32 bytes of user-
+                   controlled data from a TiVo media file (referenced by p_demux->s) and
+                   stores them in the stack buffer mst_buf, declared in line 1626. The
+                   U32_AT macro in line 1642 then extracts a user-controlled value from
+                   mst_buf and stores it in the signed int variable i_map_size. In line 1650,
+                   the stream_Read() function stores user-controlled data from the media
+                   file in the stack buffer mst_buf again. But this time, stream_Read() uses
+                   the user-controlled value of i_map_size to calculate the size of the data
+                   that gets copied into mst_buf. This leads to a straight stack buffer over-
+                   flow (see Section A.1) that can be easily exploited.
+                         Here is the anatomy of the bug, as illustrated in Figure 2-2:
+
+                   1.   32 bytes of user-controlled TiVo media file data are copied
+                        into the stack buffer mst_buf. The destination buffer has a size
+                        of 32 bytes.
+                   2.   4 bytes of user-controlled data are extracted from the buffer and
+                        stored in i_map_size.
+                   3.   User-controlled TiVo media-file data is copied into mst_buf once
+                        again. This time, the size of the copied data is calculated using
+                        i_map_size. If i_map_size has a value greater than 24, a stack buffer
+                        overflow will occur (see Section A.1).
+
+
+                   2.2     Exploitation
+                   To exploit the vulnerability, I performed the following steps:
+
+                   •    Step 1: Find a sample TiVo movie file.
+                   •    Step 2: Find a code path to reach the vulnerable code.
+                   •    Step 3: Manipulate the TiVo movie file to crash VLC.
+                   •    Step 4: Manipulate the TiVo movie file to gain control of EIP.
+
+                                         A Bug Hunter's Diary
+12     Chapter 2                        © 2011 by Tobias Klein
+                                    Stack before                                         Stack after
+                                      overflow                                             overflow
+                 TiVo File                                           TiVo File
+
+
+
+
+                                        RET                                                 RET
+
+
+
+                                                                                                       writing direction
+p_demux->s
+
+                 32 Bytes     (1)
+
+                                                    p_demux->s
+                                      mst_buf                                      (3)     mst_buf
+
+
+                              (2)                                   i_map_size +
+                                                                      8 Bytes
+                                     i_map_size                                           i_map_size
+
+
+
+
+Figure 2-2: Overview of the vulnerability from input to stack buffer overflow
+
+
+
+                    There’s more than one way to exploit a file-format bug. You can
+               create a file with the right format from scratch, or you can manipulate
+               a valid preexisting file. I chose the latter in this example.
+
+               Step 1: Find a Sample TiVo Movie File                  ← The website http:/
+                                                                                             /samples
+                                                                      .mplayerhq.hu/ is a
+               First I downloaded the following                                            good starting
+                                                                      point to search for
+                                                                                          all kinds of
+               TiVo sample file from http://samples                   multimedia file-form
+                                                                                            at samples.
+               .mplayerhq.hu/:
+
+$ wget http://samples.mplayerhq.hu/TiVo/test-dtivo-junkskip.ty%2b
+--2008-10-12 21:12:25-- http://samples.mplayerhq.hu/TiVo/test-dtivo-junkskip.ty%2b
+Resolving samples.mplayerhq.hu... 213.144.138.186
+Connecting to samples.mplayerhq.hu|213.144.138.186|:80... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 5242880 (5.0M) [text/plain]
+Saving to: `test-dtivo-junkskip.ty+´
+
+100%[=========================>] 5,242,880               240K/s      in 22s
+
+2008-10-12 21:12:48 (232 KB/s) - `test-dtivo-junkskip.ty+´ saved [5242880/5242880]
+
+
+
+               Step 2: Find a Code Path to Reach the Vulnerable Code
+               I couldn’t find documentation on the specifications of the TiVo file
+               format, so I read the source code in order to find a path to reach the
+               vulnerable code in parse_master().
+
+
+
+
+                                         A Bug Hunter's Diary
+                                        © 2011 by Tobias Klein                      Back to the ’90s       13
+                 If a TiVo file is loaded by VLC, the following execution flow is
+             taken (all source code references are from vlc-0.9.4\modules\demux\Ty.c
+             of VLC). The first relevant function that’s called is Demux():
+
+[..]
+386 static int Demux( demux_t *p_demux )
+387 {
+388     demux_sys_t *p_sys = p_demux->p_sys;
+389     ty_rec_hdr_t *p_rec;
+390     block_t        *p_block_in = NULL;
+391
+392     /*msg_Dbg(p_demux, "ty demux processing" );*/
+393
+394     /* did we hit EOF earlier? */
+395     if( p_sys->eof )
+396          return 0;
+397
+398     /*
+399       * what we do (1 record now.. maybe more later):
+400       * - use stream_Read() to read the chunk header & record headers
+401       * - discard entire chunk if it is a PART header chunk
+402       * - parse all the headers into record header array
+403       * - keep a pointer of which record we're on
+404       * - use stream_Block() to fetch each record
+405       * - parse out PTS from PES headers
+406       * - set PTS for data packets
+407       * - pass the data on to the proper codec via es_out_Send()
+408
+409       * if this is the first time or
+410       * if we're at the end of this chunk, start a new one
+411       */
+412     /* parse the next chunk's record headers */
+413     if( p_sys->b_first_chunk || p_sys->i_cur_rec >= p_sys->i_num_recs )
+414     {
+415          if( get_chunk_header(p_demux) == 0 )
+[..]
+
+
+                 After some sanity checks in lines 395 and 413, the function
+             get_chunk_header() is called in line 415.
+
+[..]
+ 112 #define TIVO_PES_FILEID    ( 0xf5467abd )
+[..]
+1839 static int get_chunk_header(demux_t *p_demux)
+1840 {
+1841     int i_readSize, i_num_recs;
+1842     uint8_t *p_hdr_buf;
+1843     const uint8_t *p_peek;
+1844     demux_sys_t *p_sys = p_demux->p_sys;
+1845     int i_payload_size;              /* sum of all records' sizes */
+1846
+1847     msg_Dbg(p_demux, "parsing ty chunk #%d", p_sys->i_cur_chunk );
+1848
+1849     /* if we have left-over filler space from the last chunk, get that */
+1850     if (p_sys->i_stuff_cnt > 0) {
+
+
+                                  A Bug Hunter's Diary
+14   Chapter 2                   © 2011 by Tobias Klein
+1851       stream_Read( p_demux->s, NULL, p_sys->i_stuff_cnt);
+1852       p_sys->i_stuff_cnt = 0;
+1853   }
+1854
+1855   /* read the TY packet header */
+1856   i_readSize = stream_Peek( p_demux->s, &p_peek, 4 );
+1857   p_sys->i_cur_chunk++;
+1858
+1859   if ( (i_readSize < 4) || ( U32_AT(&p_peek[ 0 ] ) == 0 ))
+1860   {
+1861       /* EOF */
+1862       p_sys->eof = 1;
+1863       return 0;
+1864   }
+1865
+1866   /* check if it's a PART Header */
+1867   if( U32_AT( &p_peek[ 0 ] ) == TIVO_PES_FILEID )
+1868   {
+1869       /* parse master chunk */
+1870       parse_master(p_demux);
+1871       return get_chunk_header(p_demux);
+1872   }
+[..]
+
+               In line 1856 of get_chunk_header(), the user-controlled data
+           from the TiVo file is assigned to the pointer p_peek. Then, in line 1867,
+           the process checks whether the file data pointed to by p_peek equals
+           TIVO_PES_FILEID (which is defined as 0xf5467abd in line 112). If so, the
+           vulnerable function parse_master() gets called (see line 1870).
+               To reach the vulnerable function using this code path, the TiVo
+           sample file had to contain the value of TIVO_PES_FILEID. I searched the
+           TiVo sample file for the TIVO_PES_FILEID pattern and found it at file
+           offset 0x00300000 (see Figure 2-3).
+
+            00300000h: F5 46 7A BD 00 00 00 02 00 02 00 00 00 01 F7 04 ; õFz½..........÷.
+            00300010h: 00 00 00 08 00 00 00 02 3B 9A CA 00 00 00 01 48 ; ........;šÊ....H
+
+           Figure 2-3: TIVO_PES_FILEID pattern in TiVo sample file
+
+
+                 Based on the information from the parse_master() function (see
+           the following source code snippet) the value of i_map_size should be
+           found at offset 20 (0x14) relative to the TIVO_PES_FILEID pattern found
+           at file offset 0x00300000.
+
+[..]
+1641   stream_Read(p_demux->s, mst_buf, 32);
+1642   i_map_size = U32_AT(&mst_buf[20]); /* size of bitmask, in bytes */
+[..]
+
+               At this point, I had discovered that the TiVo sample file I down-
+           loaded already triggers the vulnerable parse_master() function, so it
+           wouldn’t be necessary to adjust the sample file. Great!
+
+                                    A Bug Hunter's Diary
+                                   © 2011 by Tobias Klein            Back to the ’90s   15
+ Get the →
+ vulnerable
+                   Step 3: Manipulate the TiVo Movie File to Crash VLC
+ Windows version   Next, I tried to manipulate the TiVo sample file in order to crash
+ of VLC from       VLC. To achieve this, all I had to do was change the 4-byte value at the
+http://download    sample file offset of i_map_size (which was 0x00300014 in this example).
+.videolan.org/
+pub/videolan/
+                        As illustrated in Figure 2-4, I changed the 32-bit value at file offset
+vlc/0.9.4/         0x00300014 from 0x00000002 to 0x000000ff. The new value of 255 bytes
+win32/.            (0xff) should be enough to overflow the 32-byte stack buffer and to
+                   overwrite the return address stored after the buffer on the stack (see
+                   Section A.1). Next, I opened the altered sample file with VLC while
+                   debugging the media player with Immunity Debugger.3 The movie file
+                   was played as before, but after a few seconds—as soon as the altered
+                   file data was processed—the VLC player crashed, with the result
+                   shown in Figure 2-5.
+
+                    00300010h: 00 00 00 08 00 00 00 02 3B 9A CA 00 00 00 01 48 ; ........;šÊ....H
+
+
+                    00300010h: 00 00 00 08 00 00 00 ff 3B 9A CA 00 00 00 01 48 ; ........;šÊ....H
+
+                   Figure 2-4: New value for i_map_size in TiVo sample file
+
+
+
+
+                   Figure 2-5: VLC access violation in Immunity Debugger
+
+
+                         As expected, VLC crashed while parsing the malformed TiVo
+                   file. The crash was very promising, since the instruction pointer (EIP
+
+                                            A Bug Hunter's Diary
+   16   Chapter 2                          © 2011 by Tobias Klein
+register) was pointing to an invalid memory location (indicated by the
+message Access violation when executing [20030000] in the status bar of
+the debugger). This might mean that I could easily gain control of the
+instruction pointer.
+
+Step 4: Manipulate the TiVo Movie File to Gain Control of EIP
+My next step was to determine which bytes of the sample file actu-
+ally overwrote the return address of the current stack frame so that
+I could take control of EIP. The debugger stated that EIP had a value
+of 0x20030000 at the time of the crash. To determine which offset
+this value is found at, I could try to calculate the exact file offset, or
+I could simply search the file for the byte pattern. I chose the latter
+approach and started from file offset 0x00300000. I found the desired
+byte sequence at file offset 0x0030005c, represented in little-endian
+notation, and I changed the 4 bytes to the value 0x41414141 (as illus-
+trated in Figure 2-6).
+
+ 00300050h: 56 4A 00 00 03 1F 6C 49 6A A0 25 45 00 00 03 20 ; VJ....lIj %E...
+
+
+ 00300050h: 56 4A 00 00 03 1F 6C 49 6A A0 25 45 41 41 41 41 ; VJ....lIj %EAAAA
+
+Figure 2-6: New value for EIP in TiVo sample file
+
+
+    I then restarted VLC in the debugger and opened the new file
+(see Figure 2-7).
+
+
+
+
+Figure 2-7: EIP control of VLC media player
+
+                         A Bug Hunter's Diary
+                        © 2011 by Tobias Klein            Back to the ’90s   17
+                  EIP = 41414141 . . . Mission EIP control accomplished! I was able to
+             build a working exploit, intended to achieve arbitrary code execution,
+             using the well-known jmp reg technique, as described in “Variations in
+             Exploit Methods Between Linux and Windows” by David Litchfield.4
+                  Since Germany has strict laws against it, I will not provide you with
+             a full working exploit, but if you’re interested, you can watch a short
+             video I recorded that shows the exploit in action.5
+
+
+             2.3     Vulnerability Remediation
+             Saturday, October 18, 2008
+
+             Now that I’ve discovered a security vulnerability, I could disclose it in
+             several ways. I could contact the software developer and “responsibly”
+             tell him what I’ve found and help him to create a patch. This process
+             is referred to as responsible disclosure. Since this term implies that other
+             means of disclosure are irresponsible, which isn’t necessarily true, it is
+             slowly being replaced by coordinated disclosure.
+                  On the other hand, I could sell my findings to a vulnerability broker
+             and let him tell the software developer. Today, the two primary players
+             in the commercial vulnerability market are Verisign’s iDefense Labs,
+             with its Vulnerability Contribution Program (VCP), and Tipping Point’s
+             Zero Day Initiative (ZDI). Both VCP and ZDI follow coordinated-­
+             disclosure practices and work with the affected vendor.
+                  Another option is full disclosure. If I chose full disclosure, I would
+             release the vulnerability information to the public without notifying
+             the vendor. There are other disclosure options, but the motivation
+             behind them usually doesn’t involve fixing the bug (for example, sell-
+             ing the findings in underground markets).6
+                  In the case of the VLC vulnerability described in this chapter, I
+             chose coordinated disclosure. In other words, I notified the VLC main-
+             tainers, provided them with the necessary information, and coordi-
+             nated with them on the timing of public disclosure.
+                  After I informed the VLC maintainers about the bug, they devel-
+             oped the following patch to address the vulnerability:7
+
+--- a/modules/demux/ty.c
++++ b/modules/demux/ty.c
+@@ -1639,12 +1639,14 @@ static void parse_master(demux_t *p_demux)
+     /* parse all the entries */
+     p_sys->seq_table = malloc(p_sys->i_seq_table_size * sizeof(ty_seq_table_t));
+     for (i=0; i<p_sys->i_seq_table_size; i++) {
+-        stream_Read(p_demux->s, mst_buf, 8 + i_map_size);
++        stream_Read(p_demux->s, mst_buf, 8);
+         p_sys->seq_table[i].l_timestamp = U64_AT(&mst_buf[0]);
+         if (i_map_size > 8) {
+             msg_Err(p_demux, "Unsupported SEQ bitmap size in master chunk");
++            stream_Read(p_demux->s, NULL, i_map_size);
+             memset(p_sys->seq_table[i].chunk_bitmask, i_map_size, 0);
+
+
+                                   A Bug Hunter's Diary
+18   Chapter 2                    © 2011 by Tobias Klein
+           } else {
++              stream_Read(p_demux->s, mst_buf + 8, i_map_size);
+               memcpy(p_sys->seq_table[i].chunk_bitmask, &mst_buf[8], i_map_size);
+           }
+       }
+
+                    The changes are quite straightforward. The formerly vulnerable
+              call to stream_Read() now uses a fixed size value, and the user-controlled
+              value of i_map_size is used only as a size value for stream_Read() if it is
+              less than or equal to 8. An easy fix for an obvious bug.
+                    But wait—is the vulnerability really gone? The variable i_map_size is
+              still of the type signed int. If a value greater than or equal to 0x80000000
+              is supplied for i_map_size, it’s interpreted as negative, and the overflow
+              will still occur in the stream_Read() and memcpy() functions of the else
+              branch of the patch (see Section A.3 for a description of unsigned int
+              and signed int ranges). I also reported this problem to the VLC main-
+              tainers, resulting in another patch:8
+
+[..]
+@@ -1616,7 +1618,7 @@ static void parse_master(demux_t *p_demux)
+
+ {
+       demux_sys_t *p_sys = p_demux->p_sys;
+       uint8_t mst_buf[32];
+-      int i, i_map_size;
++      uint32_t i, i_map_size;
+       int64_t i_save_pos = stream_Tell(p_demux->s);
+       int64_t i_pts_secs;
+[..]
+
+                  Now that i_map_size is of the type unsigned int, this bug is fixed.
+              Perhaps you’ve already noticed that the parse_master() function con-
+              tains another buffer overflow vulnerability. I also reported that bug to
+              the VLC maintainers. If you can’t spot it, then take a closer look at the
+              second patch provided by the VLC maintainers, which fixed this bug
+              as well.
+                  One thing that surprised me was the fact that none of the lauded
+              exploit mitigation techniques of Windows Vista were able to stop me
+              from taking control of EIP and executing arbitrary code from the
+              stack using the jmp reg technique. The security cookie or /GS feature
+              should have prevented the manipulation of the return address. Fur-
+              thermore, ASLR or NX/DEP should have prevented arbitrary code
+              execution. (See Section C.1 for a detailed description of all of these
+              mitigation techniques.)
+                  To solve this mystery, I downloaded Process Explorer9 and config-
+              ured it to show the processes’ DEP and ASLR status.
+
+
+
+
+                                    A Bug Hunter's Diary
+                                   © 2011 by Tobias Klein              Back to the ’90s   19
+             Note      To configure Process Explorer to show the processes’ DEP and ASLR
+                       status, I added the following columns to the view: View4Select
+                       Columns4DEP Status and View4Select Columns4ASLR
+                       Enabled. Additionally, I set the lower pane to view DLLs for a
+                       ­process and added the “ASLR Enabled” column.
+
+                 The output of Process Explorer, illustrated in Figure 2-8, shows
+             that VLC and its modules use neither DEP nor ASLR (this is denoted
+             by an empty value in the DEP and ASLR columns). I investigated fur-
+             ther to determine why the VLC process does not use these mitigation
+             techniques.
+
+
+
+
+             Figure 2-8: VLC in Process Explorer
+
+
+                 DEP can be controlled by system policy through special APIs and
+             compile-time options (see Microsoft’s Security Research and Defense
+             blog 10 for more information on DEP). The default system-wide DEP
+             policy for client operating systems such as Windows Vista is called
+             OptIn. In this mode of operation, DEP is enabled only for processes
+             that explicitly opt in to DEP. Because I used a default installation of
+             Windows Vista 32-bit, the system-wide DEP policy should be set to
+             OptIn. To verify this, I used the bcdedit.exe console application from
+             an elevated command prompt:
+
+C:\Windows\system32>bcdedit /enum | findstr nx
+nx                      OptIn
+
+
+                 The output of the command shows that the system was indeed
+             configured to use the OptIn operation mode of DEP, which explains
+             why VLC doesn’t use this mitigation technique: The process simply
+             doesn’t opt in to DEP.
+
+
+                                      A Bug Hunter's Diary
+20   Chapter 2                       © 2011 by Tobias Klein
+     There are different ways to opt a process in to DEP. For example,
+you could use the appropriate linker switch (/NXCOMPAT) at com-
+pile time, or you could use the SetProcessDEPPolicy API to allow an
+application to opt in to DEP programmatically.
+     To get an overview of the security-relevant compile-time options
+used by VLC, I scanned the executable files of the media player with
+LookingGlass (see Figure 2-9).11
+
+Note      In 2009, Microsoft released a tool called BinScope Binary Analyzer,
+          which analyzes binaries for a wide variety of security protections with
+          a very straightforward and easy-to-use interface.12
+
+     LookingGlass showed that the linker switch for neither ASLR
+nor DEP was used to compile VLC.13 The Windows releases of VLC
+media player are built using the Cygwin14 environment, a set of utili-
+ties designed to provide the look and feel of Linux within the Windows
+operating system. Since the linker switches that I mentioned are sup-
+ported only by Microsoft’s Visual C++ 2005 SP1 and later (and thus
+are not supported by Cygwin), it isn’t a big surprise that they aren’t
+supported by VLC.
+
+                                                                         ← Exploit
+                                                                         mitigation
+                                                                         techniques of
+                                                                         Microsoft’s Visual
+                                                                        C++ 2005 SP1
+                                                                       and later:
+                                                                      ­­• /GS for stack
+                                                                     cookies/canaries
+                                                                    ­­• /dynamicbase
+                                                                   for aslr
+                                                                  ­­• /nxcompat for
+                                                                dep/nx
+                                                                ­­• /safeseh for
+                                                                exception handler
+                                                                protection
+
+
+
+
+Figure 2-9: LookingGlass scan result of VLC
+
+
+
+
+                         A Bug Hunter's Diary
+                        © 2011 by Tobias Klein               Back to the ’90s          21
+                 See the following excerpt from the VLC build instructions:
+
+[..]
+Building VLC from the source code
+=================================
+[..]
+- natively on Windows, using cygwin (www.cygwin.com) with or without the POSIX
+emulation layer. This is the preferred way to compile vlc if you want to do it on
+Windows.
+[..]
+UNSUPPORTED METHODS
+-------------------
+[..]
+- natively on Windows, using Microsoft Visual Studio. This will not work.
+[..]
+
+
+                 At the time of this writing, VLC didn’t make use of any of the
+             exploit mitigation techniques provided by Windows Vista or later
+             releases. As a result, every bug in VLC under Windows is as easily
+             exploited today as 20 years ago, when none of these security features
+             were widely deployed or supported.
+
+
+             2.4     Lessons Learned
+             As a programmer:
+
+             •   Never trust user input (this includes file data, network data, etc.).
+             •   Never use unvalidated length or size values.
+             •   Always make use of the exploit mitigation techniques offered by
+                 modern operating systems wherever possible. Under Windows,
+                 software has to be compiled with Microsoft’s Visual C++ 2005
+                 SP1 or later, and the appropriate compiler and linker options
+                 have to be used. In addition, Microsoft has released the Enhanced
+                 Mitigation Experience Toolkit,15 which allows specific mitigation tech-
+                 niques to be applied without recompilation.
+
+                 As a user of media players:
+
+             •   Don’t ever trust media file extensions (see Section 2.5 below).
+
+
+             2.5     Addendum
+             Monday, October 20, 2008
+
+             Since the vulnerability was fixed and a new version of VLC is now avail-
+             able, I released a detailed security advisory on my website (Figure 2-10
+             shows the timeline).16 The bug was assigned CVE-2008-4654.
+
+
+
+                                  A Bug Hunter's Diary
+22   Chapter 2                   © 2011 by Tobias Klein
+Note      According to the documentation provided by MITRE,17 Common
+          Vulnerabilities and Exposures Identifiers (also called CVE names,
+          CVE numbers, CVE-IDs, and CVEs) are “unique, common identi-
+          fiers for publicly known ­information security vulnerabilities.”
+
+
+                   Patch developed by
+                    VLC maintainers
+VLC maintainers
+                                             Fixed VLC version     Release date of my
+    notified
+                                                  available         security advisory
+
+
+
+
+       10.18.2008                                        10.20.2008
+
+
+Figure 2-10: Timeline of the vulnerability
+
+
+
+Monday, January 5, 2009
+
+In reaction to the bug and my detailed advisory, I got a lot of mail
+with various questions from worried VLC users. There were two ques-
+tions that I saw over and over:
+
+          I have never heard of the TiVo media format before. Why
+          would I ever open such an obscure media file?
+
+          Am I secure if I don’t open TiVo media files in VLC anymore?
+
+      These are valid questions, so I asked myself how I would normally
+learn about the format of a media file I downloaded via the Internet
+with no more information than the file extension. I could fire up a
+hex editor and have a look at the file header, but to be honest, I don’t
+think ordinary people would go to the trouble. But are file extensions
+trustworthy? No, they aren’t. The regular file extension for TiVo files
+is .ty. But what stops an attacker from changing the filename from
+fun.ty to fun.avi, fun.mov, fun.mkv, or whatever she likes? The file will
+still be opened and processed as a TiVo file by the media player, since
+VLC, like almost all media players, does not use file extensions to
+recognize the media format.
+
+
+Notes
+
+1. See Dick Grune and Ceriel J.H. Jacobs, Parsing Techniques: A Practical Guide,
+2nd ed. (New York: Springer Science+Business Media, 2008), 1.
+2. The vulnerable source code version of VLC can be downloaded at http://
+download.videolan.org/pub/videolan/vlc/0.9.4/vlc-0.9.4.tar.bz2.
+
+                          A Bug Hunter's Diary
+                         © 2011 by Tobias Klein                  Back to the ’90s   23
+             3. Immunity Debugger is a great Windows debugger based on OllyDbg. It
+             comes with a nice GUI and a lot of extra features and plug-ins to support bug
+             hunting and exploit development. It can be found at http://www.immunityinc
+             .com/products-immdbg.shtml.
+             4. See David Litchfield, “Variations in Exploit Methods Between Linux
+             and Windows,” 2003, http://www.nccgroup.com/Libraries/Document_Downloads/
+             Variations_in_Exploit_methods_between_Linux_and_Windows.sflb.ashx.
+             5. See http://www.trapkit.de/books/bhd/.
+             6. For more information on responsible, coordinated, and full disclosure
+             as well as the commercial vulnerability market, consult Stefan Frei, Dominik
+             Schatzmann, Bernhard Plattner, and Brian Trammel, “Modelling the Security
+             Ecosystem—The Dynamics of (In)Security,” 2009, http://www.techzoom.net/
+             publications/security-ecosystem/.
+             7. The Git repository of VLC can be found at http://git.videolan.org/. The first
+             fix issued for this bug can be downloaded from http://git.videolan.org/?p=vlc
+             .git;a=commitdiff;h=26d92b87bba99b5ea2e17b7eaa39c462d65e9133.
+             8. The fix for the subsequent VLC bug that I found can be downloaded from
+             http://git.videolan.org/?p=vlc.git;a=commitdiff;h=d859e6b9537af2d7326276f70de2
+             5a840f554dc3.
+             9. To download Process Explorer, visit http://technet.microsoft.com/en-en/
+             sysinternals/bb896653/.
+             10. See http://blogs.technet.com/b/srd/archive/2009/06/12/understanding-dep-as-a-
+             mitigation-technology-part-1.aspx.
+             11. LookingGlass is a handy tool to scan a directory structure or the running
+             processes to report which binaries do not make use of ASLR and NX. It can
+             be found at http://www.erratasec.com/lookingglass.html.
+             12. To download BinScope Binary analyzer, visit http://go.microsoft.com/
+             ?linkid=9678113.
+             13. A good article on the exploit mitigation techniques introduced by Micro-
+             soft Visual C++ 2005 SP1 and later: Michael Howard, “Protecting Your Code
+             with Visual C++ Defenses,” MSDN Magazine, March 2008, http://msdn.microsoft
+             .com/en-us/magazine/cc337897.aspx.
+             14. See http://www.cygwin.com/.
+             15. The Enhanced Mitigation Experience Toolkit is available at http://
+             blogs.technet.com/srd/archive/2010/09/02/enhanced-mitigation-experience-toolkit-
+             emet-v2-0-0.aspx.
+             16. My security advisory that describes the details of the VLC vulnerability can
+             be found at http://www.trapkit.de/advisories/TKADV2008-010.txt.
+             17. See http://cve.mitre.org/cve/identifiers/index.html.
+
+
+
+
+                                     A Bug Hunter's Diary
+24   Chapter 2                      © 2011 by Tobias Klein
+
