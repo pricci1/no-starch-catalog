@@ -18,6 +18,7 @@ export type BookAsset = {
   url: string;
   localPath?: string;
   textPath?: string;
+  textHash?: string;
   textContent?: string;
 };
 

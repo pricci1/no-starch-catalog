@@ -1,8 +1,10 @@
 import { scrape } from "./src/scrape";
+import { extractPdfs } from "./src/extract";
 
 function usage(): never {
   console.error(`Usage:
   bun run index.ts scrape [--limit N] [--no-assets]
+  bun run index.ts extract-pdfs
   bun run index.ts build-db
   bun run index.ts search QUERY
 `);
@@ -22,6 +24,8 @@ if (command === "scrape") {
     limit: limit ? Number(limit) : undefined,
     fetchAssets: !process.argv.includes("--no-assets"),
   });
+} else if (command === "extract-pdfs") {
+  await extractPdfs();
 } else if (command === "build-db" || command === "search") {
   console.error(`${command} is not implemented yet.`);
   process.exit(2);
