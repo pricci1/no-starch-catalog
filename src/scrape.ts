@@ -9,6 +9,7 @@ export type ScrapeOptions = {
   dataDir?: string;
   limit?: number;
   fetchAssets?: boolean;
+  urls?: string[];
 };
 
 async function fetchText(url: string): Promise<string> {
@@ -54,12 +55,16 @@ function stableBook(book: BookSnapshot): BookSnapshot {
 
 export async function scrape(options: ScrapeOptions = {}): Promise<BookSnapshot[]> {
   const dataDir = options.dataDir ?? "data";
-  const catalogHtml = await fetchText(CATALOG_URL);
-  const catalogPath = join(dataDir, "raw", "catalog.html");
-  await ensureParent(catalogPath);
-  await Bun.write(catalogPath, catalogHtml);
+  const catalogHtml = options.urls?.length ? "" : await fetchText(CATALOG_URL);
+  if (catalogHtml) {
+    const catalogPath = join(dataDir, "raw", "catalog.html");
+    await ensureParent(catalogPath);
+    await Bun.write(catalogPath, catalogHtml);
+  }
 
-  const links = parseCatalogLinks(catalogHtml).slice(0, options.limit);
+  const links = options.urls?.length
+    ? options.urls.map((url) => ({ slug: slugFromUrl(url), url, title: slugFromUrl(url) }))
+    : parseCatalogLinks(catalogHtml).slice(0, options.limit);
   const books: BookSnapshot[] = [];
 
   for (const [index, link] of links.entries()) {
@@ -97,7 +102,7 @@ export async function scrape(options: ScrapeOptions = {}): Promise<BookSnapshot[
   await writeJson(join(dataDir, "catalog-meta.json"), {
     sourceUrl: CATALOG_URL,
     bookCount: books.length,
-    catalogHash: hashText(catalogHtml),
+    catalogHash: catalogHtml ? hashText(catalogHtml) : undefined,
   });
   return books;
 }

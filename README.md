@@ -35,6 +35,14 @@ bun run index.ts scrape --limit 5 --no-assets
 bun run build-db
 ```
 
+To test a single known book page, including its linked assets:
+
+```bash
+bun run index.ts scrape --url https://nostarch.com/cad
+bun run extract-pdfs
+bun run build-db
+```
+
 This creates:
 
 - `data/raw/catalog.html`

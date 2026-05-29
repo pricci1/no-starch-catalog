@@ -5,7 +5,7 @@ import { buildHistoryDb } from "./src/history";
 
 function usage(): never {
   console.error(`Usage:
-  bun run index.ts scrape [--limit N] [--no-assets]
+  bun run index.ts scrape [--limit N] [--url URL] [--no-assets]
   bun run index.ts extract-pdfs
   bun run index.ts build-db
   bun run index.ts history-db
@@ -19,6 +19,10 @@ function readOption(name: string): string | undefined {
   return index === -1 ? undefined : process.argv[index + 1];
 }
 
+function readOptions(name: string): string[] {
+  return process.argv.flatMap((value, index) => value === name && process.argv[index + 1] ? [process.argv[index + 1]!] : []);
+}
+
 const command = process.argv[2];
 
 if (command === "scrape") {
@@ -26,6 +30,7 @@ if (command === "scrape") {
   await scrape({
     limit: limit ? Number(limit) : undefined,
     fetchAssets: !process.argv.includes("--no-assets"),
+    urls: readOptions("--url"),
   });
 } else if (command === "extract-pdfs") {
   await extractPdfs();
