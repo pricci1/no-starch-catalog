@@ -4,6 +4,7 @@ import { parseBookPage, parseCatalogLinks } from "./parse";
 import { ensureParent, hashText, slugFromUrl, writeJson } from "./utils";
 
 const CATALOG_URL = "https://nostarch.com/catalog.htm";
+export const MAX_ASSET_BYTES = 50 * 1024 * 1024;
 
 export type ScrapeOptions = {
   dataDir?: string;
@@ -21,7 +22,15 @@ async function fetchText(url: string): Promise<string> {
 async function fetchBytes(url: string): Promise<ArrayBuffer> {
   const response = await fetch(url, { headers: { "User-Agent": "no-starch-catalog/0.1 (+https://github.com/)" } });
   if (!response.ok) throw new Error(`Fetch failed ${response.status} ${response.statusText}: ${url}`);
-  return await response.arrayBuffer();
+  const contentLength = Number(response.headers.get("content-length") ?? "0");
+  if (contentLength > MAX_ASSET_BYTES) {
+    throw new Error(`Asset exceeds 50MB limit (${contentLength} bytes): ${url}`);
+  }
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength > MAX_ASSET_BYTES) {
+    throw new Error(`Asset exceeds 50MB limit (${bytes.byteLength} bytes): ${url}`);
+  }
+  return bytes;
 }
 
 function assetFilename(asset: BookAsset): string {
@@ -86,7 +95,10 @@ export async function scrape(options: ScrapeOptions = {}): Promise<BookSnapshot[
             const bytes = await fetchBytes(asset.url);
             await ensureParent(asset.localPath);
             await Bun.write(asset.localPath, bytes);
+            asset.byteSize = bytes.byteLength;
           } catch (error) {
+            asset.skippedReason = (error as Error).message;
+            delete asset.localPath;
             console.error(`  asset skipped: ${(error as Error).message}`);
           }
         }

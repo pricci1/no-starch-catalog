@@ -50,7 +50,9 @@ This creates:
 - `data/raw/books/<slug>/*.pdf` and cover images, when available
 - `data/extracted/books/<slug>/*.txt`
 - `data/catalog-books.json`, a deterministic JSON list suitable for git scraping
-- `data/catalog.db`, the current searchable SQLite catalog
+- `data/catalog.db`, the current searchable SQLite catalog, rebuilt locally and ignored if it exceeds the repository file-size budget
+
+Downloaded assets larger than 50MB are skipped and recorded in `catalog-books.json` with a `skippedReason`, rather than being committed.
 
 ## Search
 

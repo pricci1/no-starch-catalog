@@ -19,6 +19,8 @@ export type BookAsset = {
   localPath?: string;
   textPath?: string;
   textHash?: string;
+  byteSize?: number;
+  skippedReason?: string;
   textContent?: string;
 };
 
