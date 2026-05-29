@@ -1,5 +1,6 @@
 import { scrape } from "./src/scrape";
 import { extractPdfs } from "./src/extract";
+import { buildCatalogDb, searchCatalog } from "./src/db";
 
 function usage(): never {
   console.error(`Usage:
@@ -26,9 +27,16 @@ if (command === "scrape") {
   });
 } else if (command === "extract-pdfs") {
   await extractPdfs();
-} else if (command === "build-db" || command === "search") {
-  console.error(`${command} is not implemented yet.`);
-  process.exit(2);
+} else if (command === "build-db") {
+  const dbPath = await buildCatalogDb();
+  console.log(dbPath);
+} else if (command === "search") {
+  const query = process.argv.slice(3).join(" ");
+  if (!query) usage();
+  for (const result of searchCatalog(query)) {
+    console.log(`${result.bookTitle} (${result.documentType})`);
+    console.log(`  ${result.snippet}`);
+  }
 } else {
   usage();
 }
