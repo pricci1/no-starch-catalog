@@ -27,11 +27,24 @@ export function extractLinks(html: string): Array<{ href: string; text: string; 
 export function parseCatalogLinks(html: string): BookLink[] {
   const seen = new Set<string>();
   const links: BookLink[] = [];
+  const ignoredSlugs = new Set([
+    "about",
+    "academic",
+    "contactus",
+    "faq",
+    "jobs",
+    "media",
+    "privacy",
+    "rights",
+    "sales-distribution",
+    "writeforus",
+  ]);
   for (const link of extractLinks(html)) {
     if (!link.href.startsWith("/") || link.href.startsWith("/catalog") || link.href.startsWith("/download") || link.href === "/") continue;
     if (!link.text || link.text.length < 3 || /mailing list|upcoming|merch/i.test(link.text)) continue;
     const url = absoluteUrl(link.href);
     const slug = slugFromUrl(url);
+    if (ignoredSlugs.has(slug)) continue;
     if (seen.has(slug)) continue;
     seen.add(slug);
     links.push({ slug, url, title: link.text });
